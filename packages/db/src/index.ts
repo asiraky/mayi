@@ -1,8 +1,10 @@
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import postgres, { type Sql, type TransactionSql } from "postgres";
 import * as schema from "./schema";
 
 export * from "./schema";
+
+export type DatabaseSql = Sql | TransactionSql;
 
 export function createDatabase(url = process.env.DATABASE_URL) {
   if (!url) throw new Error("DATABASE_URL is required");

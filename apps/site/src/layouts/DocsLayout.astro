@@ -1,0 +1,32 @@
+---
+import type { CollectionEntry } from "astro:content";
+import BaseLayout from "./BaseLayout.astro";
+
+interface Props {
+  entry: CollectionEntry<"docs">;
+  entries: CollectionEntry<"docs">[];
+}
+
+const { entry, entries } = Astro.props;
+---
+
+<BaseLayout title={`${entry.data.title} | May I?`} description={entry.data.description}>
+  <div class="docs-shell">
+    <aside>
+      <p class="docs-label">Documentation</p>
+      <nav aria-label="Documentation navigation">
+        {entries.map((item) => (
+          <a class:list={{ active: item.id === entry.id }} href={item.id === "introduction" ? "/docs" : `/docs/${item.id}`}>
+            {item.data.title}
+          </a>
+        ))}
+      </nav>
+    </aside>
+    <article class="docs-article prose">
+      <p class="eyebrow">Documentation</p>
+      <h1>{entry.data.title}</h1>
+      <p class="lede">{entry.data.description}</p>
+      <slot />
+    </article>
+  </div>
+</BaseLayout>
