@@ -2,6 +2,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -31,7 +32,7 @@ jobs:
       - run: pnpm db:migrate
         env: { DATABASE_URL: "postgres://mayi:mayi@localhost:5432/mayi" }
   deploy-site:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_SITE_DEPLOY_ENABLED == 'true'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_SITE_DEPLOY_ENABLED == 'true'
     needs: verify
     runs-on: ubuntu-latest
     environment: production
@@ -52,7 +53,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy --config apps/site/wrangler.jsonc
   deploy-cloudflare:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
     needs: verify
     runs-on: ubuntu-latest
     environment: production
@@ -66,6 +67,12 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Apply production database migrations
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL"
+          pnpm db:migrate
       - name: Configure Cloudflare bindings
         env:
           HYPERDRIVE_ID: ${{ vars.CLOUDFLARE_HYPERDRIVE_ID }}
