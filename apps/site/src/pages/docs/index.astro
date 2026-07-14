@@ -1,0 +1,13 @@
+---
+import { getCollection, render } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order);
+const entry = entries.find((item) => item.id === "introduction");
+if (!entry) throw new Error("Missing introduction documentation");
+const { Content } = await render(entry);
+---
+
+<DocsLayout {entry} {entries}>
+  <Content />
+</DocsLayout>

@@ -6,9 +6,18 @@ Provide PostgreSQL 15+, an immutable private object store, `PUBLIC_ORIGIN`, pers
 
 ## Cloudflare
 
-Create a Hyperdrive binding named `HYPERDRIVE` with query caching disabled and a private R2 bucket binding named `ARTEFACTS`. Replace the IDs in `wrangler.toml`, set secrets with `wrangler secret put`, run `pnpm --filter @mayi/server build:cloudflare`, and deploy. The Worker wrapper handles the configured minute Cron Trigger and invokes durable-job recovery with `CRON_SECRET`.
+The public site and application are separate Workers:
 
-Pushes to `main` deploy only after CI passes. Configure the GitHub `production` environment with secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, plus the `CLOUDFLARE_HYPERDRIVE_ID` environment variable. Protect that environment with reviewers if the repository has more than one trusted maintainer.
+- `mayi-site` serves the static Astro landing page and Markdown documentation at `mayi.sh`. Build it with `pnpm --filter @mayi/site build` and deploy with `pnpm deploy:site`.
+- `may-i` serves the authenticated application and API at `app.mayi.sh`.
+
+This layout can run within free allowances while usage is modest. Static asset requests are free and unlimited. The application is still subject to the Workers, Hyperdrive, R2, and PostgreSQL provider limits. A Neon Free database is a practical default; use its pooled connection string as the Hyperdrive origin.
+
+For the application Worker, first activate R2 for the Cloudflare account. Create a private bucket named `may-i-artefacts`, then create a Hyperdrive configuration named `may-i` with query caching disabled and a PostgreSQL connection string. Replace the Hyperdrive ID in `wrangler.toml`, set secrets with `wrangler secret put`, run `pnpm --filter @mayi/server build:cloudflare`, and deploy. The first successful deployment provisions the `app.mayi.sh` custom domain. The Worker wrapper handles the configured minute Cron Trigger and invokes durable-job recovery with `CRON_SECRET`.
+
+At minimum, set `PUBLIC_ORIGIN=https://app.mayi.sh`, `RECEIPT_ISSUER=https://app.mayi.sh`, persistent `RECEIPT_PRIVATE_JWK` and `RECEIPT_PUBLIC_JWK` values, and a random `CRON_SECRET`. Generate the JWK pair with `pnpm --filter @mayi/receipts generate-key`. Store production values as Worker secrets or variables; do not commit them.
+
+Pushes to `main` deploy only after CI passes. Configure the GitHub `production` environment with secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, plus the `CLOUDFLARE_HYPERDRIVE_ID` environment variable. Set repository variable `CLOUDFLARE_SITE_DEPLOY_ENABLED` to `true` for the public site and `CLOUDFLARE_DEPLOY_ENABLED` to `true` for the application. Protect the production environment with reviewers if the repository has more than one trusted maintainer.
 
 ## Vercel
 

@@ -1,6 +1,6 @@
 import { exportJWK, generateKeyPair } from "jose";
 import { createId } from "@mayi/contracts";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { signReceipt, verifyReceipt } from "./index";
 
 it("binds and verifies an exact receipt", async () => {

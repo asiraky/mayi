@@ -3,6 +3,8 @@
 [![CI](https://github.com/asiraky/mayi/actions/workflows/ci.yml/badge.svg)](https://github.com/asiraky/mayi/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+[Website](https://mayi.sh) · [Documentation](https://mayi.sh/docs/) · [Source](https://github.com/asiraky/mayi)
+
 > [!WARNING]
 > May I? is pre-release security infrastructure. Review the threat model and run your own security assessment before production use.
 
@@ -58,6 +60,8 @@ pnpm dev
 ```
 
 Run the browser client with `pnpm dev:web`, or use the server's API directly. Create a signing key with `pnpm --filter @mayi/receipts generate-key` and copy the two JSON values into `.env` before issuing production-like receipts.
+
+The public landing page and Markdown documentation live in `apps/site`. Run them with `pnpm dev:site`; editing the files under `apps/site/src/content` updates the published content on the next deployment.
 
 The first normal sign-up creates a personal workspace. Self-hosters may instead set `BOOTSTRAP_SECRET`; while it is set, the first sign-up must send it as `bootstrapSecret`, and the database consumes it atomically.
 

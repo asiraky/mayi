@@ -1,0 +1,40 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#f4f1e8" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="/" aria-label="May I? home">May I?</a>
+      <nav aria-label="Main navigation">
+        <a href="/docs">Docs</a>
+        <a href="https://github.com/asiraky/mayi">GitHub</a>
+        <a class="button button-small" href="https://app.mayi.sh">Open app</a>
+      </nav>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer>
+      <span>May I? is open source under Apache-2.0.</span>
+      <a href="https://github.com/asiraky/mayi/blob/main/SECURITY.md">Report a security issue</a>
+    </footer>
+  </body>
+</html>

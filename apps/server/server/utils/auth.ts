@@ -1,5 +1,6 @@
 import { createError, deleteCookie, getCookie, getHeader, setCookie, type H3Event } from "h3";
 import { createId } from "@mayi/contracts";
+import type { DatabaseSql } from "@mayi/db";
 import { database } from "./runtime";
 import { getConfig } from "./config";
 import { randomToken, tokenHash } from "./crypto";
@@ -18,7 +19,7 @@ export async function createSession(event: H3Event, userId: string): Promise<str
   const sessionId = createId();
   const token = `mayi_session_${randomToken()}`;
   const hash = await tokenHash(token);
-  const rows = await database().sql`
+  await database().sql`
     insert into sessions (id, user_id, token_hash, recent_auth_at, expires_at)
     values (${sessionId}, ${userId}, ${hash}, now(), now() + interval '30 days') returning id
   `;
@@ -81,7 +82,7 @@ export async function requireUserOrAgent(event: H3Event): Promise<UserAuth | Age
 export async function audit(input: {
   workspaceId: string; actorType: "user" | "agent" | "system"; actorId?: string;
   eventType: string; subjectType: string; subjectId: string; metadata?: Record<string, unknown>;
-}, sql: any = database().sql): Promise<void> {
+}, sql: DatabaseSql = database().sql): Promise<void> {
   const id = createId();
   await sql`
     insert into audit_events (id, workspace_id, actor_type, actor_id, event_type, subject_type, subject_id, metadata)
