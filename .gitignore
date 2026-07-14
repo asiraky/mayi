@@ -18,3 +18,4 @@ data/
 *.jwk
 .DS_Store
 BUILD_PLAN.md
+.claude/worktrees/

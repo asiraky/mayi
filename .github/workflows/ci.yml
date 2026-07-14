@@ -6,6 +6,42 @@ on:
 permissions:
   contents: read
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: read }
+    outputs:
+      # An unset output means the filter step was skipped (workflow_dispatch),
+      # which falls back to deploying everything.
+      site: ${{ steps.filter.outputs.site || 'true' }}
+      server: ${{ steps.filter.outputs.server || 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          filters: |
+            shared: &shared
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
+              - '.github/workflows/ci.yml'
+            site:
+              - *shared
+              - 'apps/site/**'
+            server:
+              - *shared
+              - 'apps/server/**'
+              - 'apps/web/**'
+              - 'packages/contracts/**'
+              - 'packages/db/**'
+              - 'packages/domain/**'
+              - 'packages/receipts/**'
+              - 'packages/sdk/**'
+              - 'packages/storage/**'
+              - 'deploy/**'
+              - 'wrangler.toml'
   verify:
     runs-on: ubuntu-latest
     services:
@@ -32,8 +68,8 @@ jobs:
       - run: pnpm db:migrate
         env: { DATABASE_URL: "postgres://mayi:mayi@localhost:5432/mayi" }
   deploy-site:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_SITE_DEPLOY_ENABLED == 'true'
-    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_SITE_DEPLOY_ENABLED == 'true' && needs.changes.outputs.site == 'true'
+    needs: [changes, verify]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
@@ -53,8 +89,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy --config apps/site/wrangler.jsonc
   deploy-cloudflare:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
-    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true' && needs.changes.outputs.server == 'true'
+    needs: [changes, verify]
     runs-on: ubuntu-latest
     environment: production
     concurrency:
