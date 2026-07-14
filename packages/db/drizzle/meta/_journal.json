@@ -5,22 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1784026155259,
-      "tag": "0000_massive_terrax",
+      "when": 1784028641158,
+      "tag": "0000_identifier_domain",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1784026626839,
-      "tag": "0001_wild_gargoyle",
+      "when": 1784028656078,
+      "tag": "0001_initial_schema",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1784027191196,
-      "tag": "0002_flowery_corsair",
+      "when": 1784028666719,
+      "tag": "0002_tenant_rls",
       "breakpoints": true
     }
   ]

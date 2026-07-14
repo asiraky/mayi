@@ -1,6 +1,6 @@
 {
-  "id": "b1253c0d-99cb-41b7-8c55-ab951921cf82",
-  "prevId": "29d63368-6a93-4be1-b41b-45a34735250a",
+  "id": "4e0b29d8-4ae1-4e2b-856a-131246fa2449",
+  "prevId": "26853f88-3e92-486d-b9d0-0e599fa2c903",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -10,14 +10,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -53,7 +52,7 @@
         },
         "created_by": {
           "name": "created_by",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -134,13 +133,13 @@
       "columns": {
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "artefact_id": {
           "name": "artefact_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -222,20 +221,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -319,7 +317,7 @@
         },
         "approver_id": {
           "name": "approver_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": false
         },
@@ -423,20 +421,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -556,14 +553,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -575,7 +571,7 @@
         },
         "actor_id": {
           "name": "actor_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": false
         },
@@ -593,7 +589,7 @@
         },
         "subject_id": {
           "name": "subject_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -700,20 +696,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -800,19 +795,19 @@
       "columns": {
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         }
@@ -901,7 +896,7 @@
       "columns": {
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -955,32 +950,31 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "origin_id": {
           "name": "origin_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1115,14 +1109,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1161,7 +1154,19 @@
         },
         "mapped_user_id": {
           "name": "mapped_user_id",
-          "type": "uuid",
+          "type": "mayi_id",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_hash": {
+          "name": "verification_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_expires_at": {
+          "name": "verification_expires_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -1243,20 +1248,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1358,13 +1362,13 @@
       "columns": {
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "credential_id": {
           "name": "credential_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1444,14 +1448,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1592,13 +1595,13 @@
       "columns": {
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1695,7 +1698,7 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "mayi_id",
           "primaryKey": true,
           "notNull": true
         },
@@ -1739,13 +1742,13 @@
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1834,19 +1837,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1937,20 +1940,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "family_id": {
           "name": "family_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -2022,14 +2024,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -2101,10 +2102,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "email": {
           "name": "email",
@@ -2175,10 +2175,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "name": {
           "name": "name",

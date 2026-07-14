@@ -1,5 +1,5 @@
 import type { Action, ApprovalState, Artefact } from "@mayi/contracts";
-import { canonicalDigest } from "@mayi/contracts";
+import { canonicalDigest, Id } from "@mayi/contracts";
 import { z } from "zod";
 
 export class DomainError extends Error {
@@ -25,7 +25,7 @@ export const actionSchemas: Record<string, z.ZodType> = {
   "git.merge@1": z.object({ repository: z.string().min(1), sha, expectedHead: sha }).strict(),
   "deploy.release@1": z.object({ environment: z.string().min(1), releaseDigest: z.string().min(16), expectedCurrentRelease: z.string().min(1) }).strict(),
   "http.request@1": z.object({ method: z.enum(["POST", "PUT", "PATCH", "DELETE"]), url: z.url(), bodySha256: z.string().length(64).optional(), ifMatch: z.string().optional() }).strict(),
-  "admin.user.delete@1": z.object({ userId: z.uuid(), expectedAccountVersion: z.string().min(1) }).strict(),
+  "admin.user.delete@1": z.object({ userId: Id, expectedAccountVersion: z.string().min(1) }).strict(),
 };
 
 export function validateActionForEnforcement(action: Action, enforcement: "cooperative" | "verified" | "consumed"): void {

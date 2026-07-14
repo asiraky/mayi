@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { Id } from "./id";
 
 export * from "./canonical";
+export * from "./id";
 
 export const ApprovalState = z.enum(["DRAFT", "PENDING", "APPROVED", "DENIED", "EXPIRED", "CANCELLED"]);
 export type ApprovalState = z.infer<typeof ApprovalState>;
@@ -20,7 +22,7 @@ export const Action = z.object({
 export type Action = z.infer<typeof Action>;
 
 export const Artefact = z.object({
-  id: z.uuid(),
+  id: Id,
   ordinal: z.number().int().nonnegative(),
   filename: z.string().min(1).max(255),
   mediaType: z.enum(["application/pdf", "image/png", "image/jpeg", "image/webp"]),
@@ -34,11 +36,11 @@ export const CreateApproval = z.object({
   explanation: z.string().min(1).max(10_000),
   expiresInSeconds: z.number().int().min(60).max(7 * 24 * 60 * 60).default(3600),
   enforcement: EnforcementMode.default("cooperative"),
-  suggestedApproverId: z.uuid().optional(),
+  suggestedApproverId: Id.optional(),
 });
 export type CreateApproval = z.infer<typeof CreateApproval>;
 
-export const SealApproval = z.object({ artefactIds: z.array(z.uuid()).max(20).default([]) });
+export const SealApproval = z.object({ artefactIds: z.array(Id).max(20).default([]) });
 export const Decision = z.object({
   decision: z.enum(["APPROVED", "DENIED"]),
   comment: z.string().max(4_000).optional(),
@@ -46,9 +48,9 @@ export const Decision = z.object({
 export type Decision = z.infer<typeof Decision>;
 
 export const Approval = z.object({
-  id: z.uuid(),
-  workspaceId: z.uuid(),
-  agentId: z.uuid(),
+  id: Id,
+  workspaceId: Id,
+  agentId: Id,
   state: ApprovalState,
   action: Action,
   explanation: z.string(),
@@ -61,14 +63,14 @@ export const Approval = z.object({
   expiresAt: z.iso.datetime(),
   decidedAt: z.iso.datetime().nullable(),
   decisionComment: z.string().nullable(),
-  approverId: z.uuid().nullable(),
+  approverId: Id.nullable(),
   receipt: z.string().optional(),
 });
 export type Approval = z.infer<typeof Approval>;
 
 export const Session = z.object({
-  user: z.object({ id: z.uuid(), email: z.email(), displayName: z.string() }),
-  workspace: z.object({ id: z.uuid(), name: z.string() }),
+  user: z.object({ id: Id, email: z.email(), displayName: z.string() }),
+  workspace: z.object({ id: Id, name: z.string() }),
   recentAuthAt: z.iso.datetime(),
 });
 export type Session = z.infer<typeof Session>;
@@ -82,7 +84,7 @@ export const Signup = z.object({
 export const Signin = z.object({ email: z.email(), password: z.string().min(1).max(256) });
 
 export const AgentGrant = z.object({
-  id: z.uuid(),
+  id: Id,
   name: z.string(),
   scopes: z.array(z.enum(["approval:create", "approval:read", "approval:cancel"])),
   lastUsedAt: z.iso.datetime().nullable(),

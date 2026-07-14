@@ -1,4 +1,5 @@
 import { createError, deleteCookie, getCookie, getHeader, setCookie, type H3Event } from "h3";
+import { createId } from "@mayi/contracts";
 import { database } from "./runtime";
 import { getConfig } from "./config";
 import { randomToken, tokenHash } from "./crypto";
@@ -14,11 +15,12 @@ export type UserAuth = {
 export type AgentAuth = { kind: "agent"; agentId: string; workspaceId: string; scopes: string[] };
 
 export async function createSession(event: H3Event, userId: string): Promise<string> {
+  const sessionId = createId();
   const token = `mayi_session_${randomToken()}`;
   const hash = await tokenHash(token);
   const rows = await database().sql`
-    insert into sessions (user_id, token_hash, recent_auth_at, expires_at)
-    values (${userId}, ${hash}, now(), now() + interval '30 days') returning id
+    insert into sessions (id, user_id, token_hash, recent_auth_at, expires_at)
+    values (${sessionId}, ${userId}, ${hash}, now(), now() + interval '30 days') returning id
   `;
   setCookie(event, "mayi_session", token, {
     httpOnly: true, secure: getConfig().secureCookies, sameSite: "lax", path: "/", maxAge: 30 * 24 * 60 * 60,
@@ -44,7 +46,7 @@ export async function requireUser(event: H3Event): Promise<UserAuth> {
     join users u on u.id = s.user_id and u.active and u.deleted_at is null
     join memberships m on m.user_id = u.id and m.active and m.revoked_at is null
     where s.token_hash = ${hash} and s.revoked_at is null and s.expires_at > now()
-      and (${workspaceHint ?? null}::uuid is null or m.workspace_id = ${workspaceHint ?? null}::uuid)
+      and (${workspaceHint ?? null}::mayi_id is null or m.workspace_id = ${workspaceHint ?? null}::mayi_id)
     order by m.created_at asc limit 1
   `;
   const row = rows[0];
@@ -80,8 +82,9 @@ export async function audit(input: {
   workspaceId: string; actorType: "user" | "agent" | "system"; actorId?: string;
   eventType: string; subjectType: string; subjectId: string; metadata?: Record<string, unknown>;
 }, sql: any = database().sql): Promise<void> {
+  const id = createId();
   await sql`
-    insert into audit_events (workspace_id, actor_type, actor_id, event_type, subject_type, subject_id, metadata)
-    values (${input.workspaceId}, ${input.actorType}, ${input.actorId ?? null}, ${input.eventType}, ${input.subjectType}, ${input.subjectId}, ${JSON.stringify(input.metadata ?? {})}::jsonb)
+    insert into audit_events (id, workspace_id, actor_type, actor_id, event_type, subject_type, subject_id, metadata)
+    values (${id}, ${input.workspaceId}, ${input.actorType}, ${input.actorId ?? null}, ${input.eventType}, ${input.subjectType}, ${input.subjectId}, ${JSON.stringify(input.metadata ?? {})}::jsonb)
   `;
 }

@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { Id } from "@mayi/contracts";
 import { createError, defineEventHandler } from "h3";
 import { bodyAs } from "../../../utils/http";
 import { audit, requireUser } from "../../../utils/auth";
 import { database } from "../../../utils/runtime";
 import { tokenHash } from "../../../utils/crypto";
 
-const Input = z.object({ destinationId: z.uuid(), code: z.string().min(10).max(100) });
+const Input = z.object({ destinationId: Id, code: z.string().min(10).max(100) });
 export default defineEventHandler(async (event) => {
   const auth = await requireUser(event); if (auth.role !== "OWNER") throw createError({ statusCode: 403, statusMessage: "Owner access required" }); const input = await bodyAs(event, Input);
   const rows = await database().sql`

@@ -1,4 +1,4 @@
-import type { Approval, CreateApproval, Decision, Session } from "@mayi/contracts";
+import { createId, type Approval, type CreateApproval, type Decision, type Session } from "@mayi/contracts";
 
 export class MayIClient {
   constructor(private readonly origin: string, private readonly token?: string) {}
@@ -22,7 +22,7 @@ export class MayIClient {
   stepUp(input: { email: string; password: string }) { return this.request<{ ok: true }>("/api/auth/step-up", { method: "POST", body: JSON.stringify(input) }); }
   approvals(state?: string) { return this.request<Approval[]>(`/api/approvals${state ? `?state=${encodeURIComponent(state)}` : ""}`); }
   approval(id: string) { return this.request<Approval>(`/api/approvals/${id}`); }
-  createApproval(input: CreateApproval, idempotencyKey = crypto.randomUUID()) { return this.request<Approval>("/api/approvals", { method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(input) }); }
+  createApproval(input: CreateApproval, idempotencyKey = createId()) { return this.request<Approval>("/api/approvals", { method: "POST", headers: { "idempotency-key": idempotencyKey }, body: JSON.stringify(input) }); }
   sealApproval(id: string, artefactIds: string[]) { return this.request<Approval>(`/api/approvals/${id}/seal`, { method: "POST", body: JSON.stringify({ artefactIds }) }); }
   decide(id: string, input: Decision) { return this.request<Approval>(`/api/approvals/${id}/decision`, { method: "POST", body: JSON.stringify(input) }); }
   cancel(id: string) { return this.request<Approval>(`/api/approvals/${id}/cancel`, { method: "POST" }); }

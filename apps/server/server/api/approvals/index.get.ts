@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
   const rows = await database().sql`
     select id from approvals where workspace_id = ${auth.workspaceId}
       and (${state}::approval_state is null or state = ${state}::approval_state)
-      and (${auth.kind === "user"} or agent_id = ${auth.kind === "agent" ? auth.agentId : null}::uuid)
+      and (${auth.kind === "user"} or agent_id = ${auth.kind === "agent" ? auth.agentId : null}::mayi_id)
     order by created_at desc limit 100
   `;
   return Promise.all(rows.map((row) => serializeApproval(auth.workspaceId, String(row.id))));

@@ -1,13 +1,15 @@
 import { z } from "zod";
+import { createId, Id } from "@mayi/contracts";
 import { createError, defineEventHandler } from "h3";
 import { bodyAs } from "../../utils/http";
 import { audit, requireUser } from "../../utils/auth";
 import { validateOutboundUrl } from "../../utils/forwarding";
 import { database } from "../../utils/runtime";
+import { randomToken } from "../../utils/crypto";
 
 const Destination = z.object({
   name: z.string().min(1).max(100), endpoint: z.url(), mode: z.enum(["notify_only", "may_decide"]).default("notify_only"),
-  publicJwk: z.record(z.string(), z.unknown()).optional(), mappedUserId: z.uuid().optional(),
+  publicJwk: z.record(z.string(), z.unknown()).optional(), mappedUserId: Id.optional(),
 });
 
 export default defineEventHandler(async (event) => {
@@ -18,14 +20,15 @@ export default defineEventHandler(async (event) => {
     const member = await database().sql`select 1 from memberships where workspace_id = ${auth.workspaceId} and user_id = ${input.mappedUserId} and active and revoked_at is null and role in ('OWNER','APPROVER')`;
     if (!member.length) throw createError({ statusCode: 422, statusMessage: "Mapped approver is not eligible" });
   }
-  const challenge = crypto.randomUUID();
+  const challenge = randomToken();
   const response = await fetch(endpoint, { method: "POST", redirect: "manual", headers: { "content-type": "application/json", "user-agent": "MayI-Endpoint-Verification/1" }, body: JSON.stringify({ type: "mayi.endpoint_verification", challenge }) });
   if (!response.ok || response.status >= 300) throw createError({ statusCode: 422, statusMessage: "Webhook verification request was not accepted" });
   const proof = await response.json().catch(() => null) as { challenge?: string } | null;
   if (proof?.challenge !== challenge) throw createError({ statusCode: 422, statusMessage: "Webhook did not return the ownership challenge" });
+  const id = createId();
   const [row] = await database().sql`
-    insert into forwarding_destinations (workspace_id, type, name, endpoint, mode, public_jwk, mapped_user_id, verified_at)
-    values (${auth.workspaceId}, 'WEBHOOK', ${input.name}, ${endpoint.toString()}, ${input.mode}, ${input.publicJwk ? JSON.stringify(input.publicJwk) : null}::jsonb, ${input.mappedUserId ?? null}, now()) returning id
+    insert into forwarding_destinations (id, workspace_id, type, name, endpoint, mode, public_jwk, mapped_user_id, verified_at)
+    values (${id}, ${auth.workspaceId}, 'WEBHOOK', ${input.name}, ${endpoint.toString()}, ${input.mode}, ${input.publicJwk ? JSON.stringify(input.publicJwk) : null}::jsonb, ${input.mappedUserId ?? null}, now()) returning id
   `;
   await audit({ workspaceId: auth.workspaceId, actorType: "user", actorId: auth.userId, eventType: "forwarding.destination_verified", subjectType: "destination", subjectId: String(row!.id), metadata: { mode: input.mode } });
   return { id: String(row!.id), ...input, endpoint: endpoint.toString(), verified: true };

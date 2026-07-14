@@ -1,4 +1,4 @@
-import { canonicalDigest, CreateApproval } from "@mayi/contracts";
+import { canonicalDigest, createId, CreateApproval } from "@mayi/contracts";
 import { isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "@mayi/domain";
 import { createError, defineEventHandler } from "h3";
 import { audit, requireAgent } from "../../utils/auth";
@@ -27,18 +27,19 @@ export default defineEventHandler(async (event) => {
       where m.workspace_id = ${auth.workspaceId} and m.active and m.revoked_at is null and m.role in ('OWNER', 'APPROVER')
     `;
     validateSuggestedApprover(input.suggestedApproverId, eligible.map((row) => String(row.user_id)));
+    const id = createId();
     const [approval] = await sql`
-      insert into approvals (workspace_id, agent_id, action, explanation, enforcement, high_risk, expires_at)
-      values (${auth.workspaceId}, ${auth.agentId}, ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}))
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, high_risk, expires_at)
+      values (${id}, ${auth.workspaceId}, ${auth.agentId}, ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}))
       returning id
     `;
-    const id = String(approval!.id);
+    const storedId = String(approval!.id);
     await sql`
       insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at)
-      values (${auth.workspaceId}, ${auth.agentId}, 'approval.create', ${key}, ${payloadHash}, ${JSON.stringify({ id })}::jsonb, now() + interval '24 hours')
+      values (${auth.workspaceId}, ${auth.agentId}, 'approval.create', ${key}, ${payloadHash}, ${JSON.stringify({ id: storedId })}::jsonb, now() + interval '24 hours')
     `;
-    await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.drafted", subjectType: "approval", subjectId: id }, sql);
-    return id;
+    await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.drafted", subjectType: "approval", subjectId: storedId }, sql);
+    return storedId;
   });
   return await serializeApproval(auth.workspaceId, approvalId);
 });

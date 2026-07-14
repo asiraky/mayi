@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, readBody } from "h3";
-import { sha256 } from "@mayi/contracts";
+import { createId, sha256 } from "@mayi/contracts";
 import { database } from "../../utils/runtime";
 import { randomToken, tokenHash } from "../../utils/crypto";
 
@@ -20,12 +20,15 @@ export default defineEventHandler(async (event) => {
       const access = `mayi_${randomToken()}`;
       const refresh = `mayi_refresh_${randomToken()}`;
       const [client] = await sql`select name from oauth_clients where id = ${body.client_id!}`;
+      const agentId = createId();
+      const refreshId = createId();
+      const familyId = createId();
       const [agent] = await sql`
-        insert into agents (workspace_id, name, client_id, scopes, credential_hash, credential_expires_at, created_by)
-        values (${code.workspace_id}, ${client?.name ?? "MCP client"}, ${body.client_id!}, ${code.scopes}, ${await tokenHash(access)}, now() + interval '1 hour', ${code.user_id}) returning id
+        insert into agents (id, workspace_id, name, client_id, scopes, credential_hash, credential_expires_at, created_by)
+        values (${agentId}, ${code.workspace_id}, ${client?.name ?? "MCP client"}, ${body.client_id!}, ${code.scopes}, ${await tokenHash(access)}, now() + interval '1 hour', ${code.user_id}) returning id
       `;
       await sql`
-        insert into refresh_tokens (agent_id, family_id, token_hash, expires_at) values (${agent!.id}, ${crypto.randomUUID()}, ${await tokenHash(refresh)}, now() + interval '30 days')
+        insert into refresh_tokens (id, agent_id, family_id, token_hash, expires_at) values (${refreshId}, ${agent!.id}, ${familyId}, ${await tokenHash(refresh)}, now() + interval '30 days')
       `;
       return { access_token: access, token_type: "Bearer", expires_in: 3600, refresh_token: refresh, scope: (code.scopes as string[]).join(" ") };
     });
@@ -42,9 +45,10 @@ export default defineEventHandler(async (event) => {
       if (!old || old.revoked_at || new Date(old.expires_at as Date) <= new Date()) throw createError({ statusCode: 400, statusMessage: "Invalid refresh token" });
       const access = `mayi_${randomToken()}`;
       const refresh = `mayi_refresh_${randomToken()}`;
+      const refreshId = createId();
       await sql`update refresh_tokens set used_at = now() where id = ${old.id}`;
       await sql`update agents set credential_hash = ${await tokenHash(access)}, credential_expires_at = now() + interval '1 hour' where id = ${old.agent_id} and revoked_at is null`;
-      await sql`insert into refresh_tokens (agent_id, family_id, token_hash, expires_at) values (${old.agent_id}, ${old.family_id}, ${await tokenHash(refresh)}, now() + interval '30 days')`;
+      await sql`insert into refresh_tokens (id, agent_id, family_id, token_hash, expires_at) values (${refreshId}, ${old.agent_id}, ${old.family_id}, ${await tokenHash(refresh)}, now() + interval '30 days')`;
       return { access_token: access, token_type: "Bearer", expires_in: 3600, refresh_token: refresh, scope: (old.scopes as string[]).join(" ") };
     });
   }

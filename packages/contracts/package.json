@@ -2,7 +2,14 @@
   "name": "@mayi/contracts",
   "version": "0.1.0",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "zod": "^4.4.0" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "nanoid": "^6.0.0",
+    "zod": "^4.4.0"
+  }
 }

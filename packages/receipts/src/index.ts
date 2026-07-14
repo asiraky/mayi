@@ -1,20 +1,20 @@
 import { SignJWT, importJWK, jwtVerify, type JWK } from "jose";
 import { z } from "zod";
-import { canonicalDigest, type Action, type Artefact } from "@mayi/contracts";
+import { canonicalDigest, Id, type Action, type Artefact } from "@mayi/contracts";
 
 export const ReceiptClaims = z.object({
   iss: z.string(),
   aud: z.union([z.string(), z.array(z.string())]),
-  sub: z.string(),
-  jti: z.uuid(),
+  sub: Id,
+  jti: Id,
   iat: z.number().int(),
   exp: z.number().int(),
-  workspace_id: z.uuid(),
-  agent_id: z.uuid(),
+  workspace_id: Id,
+  agent_id: Id,
   policy_version: z.number().int().positive(),
   action_digest: z.string().regex(/^[a-f0-9]{64}$/),
   artefact_manifest_digest: z.string().regex(/^[a-f0-9]{64}$/),
-  approver_id: z.uuid(),
+  approver_id: Id,
   enforcement: z.enum(["cooperative", "verified", "consumed"]),
 });
 export type ReceiptClaims = z.infer<typeof ReceiptClaims>;

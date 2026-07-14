@@ -6,7 +6,44 @@
 > [!WARNING]
 > May I? is pre-release security infrastructure. Review the threat model and run your own security assessment before production use.
 
-May I? is a secure approval service for software agents. This repository is a pnpm TypeScript monorepo containing a Nitro service, React web client, Expo app, MCP/HTTP interfaces, PostgreSQL control plane, private artefact storage, and exact-action signed receipts.
+May I? is an approval service for software agents.
+
+Picture a release agent working through a deployment. It has built the image and checked the target, but production is the point where a person should take responsibility. The agent sends May I? the exact release digest, environment, and expected current version. A human reviews that frozen request in the web or mobile app. If they approve it, May I? returns a short-lived signed receipt bound to those details. Change the digest or the target and the receipt no longer matches.
+
+The approval covers only the submitted action. It does not give the agent a general green light.
+
+The repository is a pnpm TypeScript monorepo with a Nitro service, React web client, Expo app, MCP and HTTP interfaces, PostgreSQL, private artefact storage, and signed receipts. IDs are 12 ASCII letters generated with NanoID.
+
+## Example
+
+An agent can create a draft through the TypeScript SDK, attach evidence if needed, then seal it for review:
+
+```ts
+import { MayIClient } from "@mayi/sdk";
+
+const mayi = new MayIClient("https://mayi.example.com", process.env.MAYI_AGENT_TOKEN);
+
+const draft = await mayi.createApproval({
+  action: {
+    kind: "deploy.release",
+    version: "1",
+    audience: "production-deployer",
+    parameters: {
+      environment: "production",
+      releaseDigest: "sha256:8c7f...",
+      expectedCurrentRelease: "sha256:12ab...",
+    },
+  },
+  explanation: "Deploy the release that passed CI.",
+  enforcement: "verified",
+  expiresInSeconds: 900,
+});
+
+const pending = await mayi.sealApproval(draft.id, []);
+console.log(pending.id); // for example: aZbYcXdWeVfU
+```
+
+The agent polls or reads the approval after the person decides. The executor verifies the signed receipt and recomputes the action digest before doing any work. See [the API guide](docs/API.md) for the HTTP and MCP versions of the same flow.
 
 ## Run locally
 
@@ -32,7 +69,7 @@ pnpm test
 pnpm build
 ```
 
-Architecture, security boundaries, deployment, backup, and operational procedures are in [`docs/`](docs/).
+Architecture, security boundaries, deployment, backup, and operational procedures are in [`docs/`](docs/). Start with the [threat model](docs/THREAT_MODEL.md) if you plan to put May I? in front of a real system.
 
 ## Community
 

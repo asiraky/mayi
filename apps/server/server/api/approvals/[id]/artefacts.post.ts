@@ -1,4 +1,4 @@
-import { sha256 } from "@mayi/contracts";
+import { createId, sha256 } from "@mayi/contracts";
 import { createError, defineEventHandler, getHeader, getQuery, getRouterParam, readRawBody } from "h3";
 import { requireAgent } from "../../../utils/auth";
 import { database } from "../../../utils/runtime";
@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
   if (!body?.byteLength || body.byteLength > maximum) throw createError({ statusCode: 413, statusMessage: "Artefact is empty or exceeds 25 MiB" });
   const draft = await database().sql`select 1 from approvals where id = ${approvalId} and workspace_id = ${auth.workspaceId} and agent_id = ${auth.agentId} and state = 'DRAFT'`;
   if (!draft.length) throw createError({ statusCode: 409, statusMessage: "Only the owning agent may upload to a draft" });
-  const id = crypto.randomUUID();
+  const id = createId();
   const objectKey = `${auth.workspaceId}/${approvalId}/${id}`;
   const digest = await sha256(body);
   await objects().putImmutable(objectKey, body, mediaType);

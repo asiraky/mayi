@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createId } from "@mayi/contracts";
 import { decisionTransition, freezeDigests, validateActionForEnforcement, validateSuggestedApprover } from "./index";
 
 describe("approval state", () => {
@@ -27,8 +28,8 @@ describe("executor-owned action schemas", () => {
 describe("exact-action binding", () => {
   it("changes when artefact order changes", async () => {
     const action = { kind: "git.merge", version: "1", audience: "github", parameters: { sha: "abc" } };
-    const first = { id: crypto.randomUUID(), ordinal: 0, filename: "a.pdf", mediaType: "application/pdf" as const, size: 1, sha256: "a".repeat(64) };
-    const second = { ...first, id: crypto.randomUUID(), ordinal: 1, filename: "b.pdf", sha256: "b".repeat(64) };
+    const first = { id: createId(), ordinal: 0, filename: "a.pdf", mediaType: "application/pdf" as const, size: 1, sha256: "a".repeat(64) };
+    const second = { ...first, id: createId(), ordinal: 1, filename: "b.pdf", sha256: "b".repeat(64) };
     const a = await freezeDigests(action, [first, second]);
     const b = await freezeDigests(action, [{ ...first, ordinal: 1 }, { ...second, ordinal: 0 }]);
     expect(a.manifestDigest).not.toBe(b.manifestDigest);

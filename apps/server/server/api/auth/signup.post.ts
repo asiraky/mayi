@@ -1,4 +1,4 @@
-import { Signup } from "@mayi/contracts";
+import { createId, Signup } from "@mayi/contracts";
 import { createError, defineEventHandler, getHeader } from "h3";
 import { bodyAs } from "../../utils/http";
 import { database } from "../../utils/runtime";
@@ -17,11 +17,13 @@ export default defineEventHandler(async (event) => {
     }
     const existing = await sql`select 1 from users where lower(email) = lower(${input.email})`;
     if (existing.length) throw createError({ statusCode: 409, statusMessage: "Email is already registered" });
+    const userId = createId();
+    const workspaceId = createId();
     const [user] = await sql`
-      insert into users (email, display_name, password_hash) values (${input.email.toLowerCase()}, ${input.displayName}, ${await passwordHash(input.password)}) returning id
+      insert into users (id, email, display_name, password_hash) values (${userId}, ${input.email.toLowerCase()}, ${input.displayName}, ${await passwordHash(input.password)}) returning id
     `;
     const [workspace] = await sql`
-      insert into workspaces (name, retention_days) values (${`${input.displayName}'s workspace`}, ${config.retentionDays}) returning id, name
+      insert into workspaces (id, name, retention_days) values (${workspaceId}, ${`${input.displayName}'s workspace`}, ${config.retentionDays}) returning id, name
     `;
     await sql`insert into memberships (workspace_id, user_id, role) values (${workspace!.id}, ${user!.id}, 'OWNER')`;
     await audit({ workspaceId: String(workspace!.id), actorType: "user", actorId: String(user!.id), eventType: "workspace.created", subjectType: "workspace", subjectId: String(workspace!.id) }, sql);

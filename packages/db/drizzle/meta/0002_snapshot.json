@@ -1,6 +1,6 @@
 {
-  "id": "a0c3d2d5-6a46-4889-9b84-40e3735de733",
-  "prevId": "b1253c0d-99cb-41b7-8c55-ab951921cf82",
+  "id": "f4ddf7e0-e050-413e-a040-6cb6f022923e",
+  "prevId": "4e0b29d8-4ae1-4e2b-856a-131246fa2449",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -10,14 +10,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -53,7 +52,7 @@
         },
         "created_by": {
           "name": "created_by",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -89,37 +88,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "agents_workspace_id_workspaces_id_fk": {
           "name": "agents_workspace_id_workspaces_id_fk",
           "tableFrom": "agents",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "agents_created_by_users_id_fk": {
           "name": "agents_created_by_users_id_fk",
           "tableFrom": "agents",
-          "tableTo": "users",
           "columnsFrom": [
             "created_by"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -134,13 +133,13 @@
       "columns": {
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "artefact_id": {
           "name": "artefact_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -169,37 +168,37 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "approval_artefacts_approval_id_approvals_id_fk": {
           "name": "approval_artefacts_approval_id_approvals_id_fk",
           "tableFrom": "approval_artefacts",
-          "tableTo": "approvals",
           "columnsFrom": [
             "approval_id"
           ],
+          "tableTo": "approvals",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "approval_artefacts_artefact_id_artefacts_id_fk": {
           "name": "approval_artefacts_artefact_id_artefacts_id_fk",
           "tableFrom": "approval_artefacts",
-          "tableTo": "artefacts",
           "columnsFrom": [
             "artefact_id"
           ],
+          "tableTo": "artefacts",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "restrict"
         }
       },
       "compositePrimaryKeys": {
@@ -222,20 +221,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -319,7 +317,7 @@
         },
         "approver_id": {
           "name": "approver_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": false
         },
@@ -360,50 +358,50 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "approvals_workspace_id_workspaces_id_fk": {
           "name": "approvals_workspace_id_workspaces_id_fk",
           "tableFrom": "approvals",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "approvals_agent_id_agents_id_fk": {
           "name": "approvals_agent_id_agents_id_fk",
           "tableFrom": "approvals",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "approvals_approver_id_users_id_fk": {
           "name": "approvals_approver_id_users_id_fk",
           "tableFrom": "approvals",
-          "tableTo": "users",
           "columnsFrom": [
             "approver_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -423,20 +421,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -503,47 +500,47 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "artefacts_workspace_id_workspaces_id_fk": {
           "name": "artefacts_workspace_id_workspaces_id_fk",
           "tableFrom": "artefacts",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "artefacts_approval_id_approvals_id_fk": {
           "name": "artefacts_approval_id_approvals_id_fk",
           "tableFrom": "artefacts",
-          "tableTo": "approvals",
           "columnsFrom": [
             "approval_id"
           ],
+          "tableTo": "approvals",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "artefacts_object_key_unique": {
           "name": "artefacts_object_key_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "object_key"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -556,14 +553,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -575,7 +571,7 @@
         },
         "actor_id": {
           "name": "actor_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": false
         },
@@ -593,7 +589,7 @@
         },
         "subject_id": {
           "name": "subject_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -630,24 +626,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "audit_events_workspace_id_workspaces_id_fk": {
           "name": "audit_events_workspace_id_workspaces_id_fk",
           "tableFrom": "audit_events",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -700,20 +696,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -756,38 +751,38 @@
         "devices_user_id_users_id_fk": {
           "name": "devices_user_id_users_id_fk",
           "tableFrom": "devices",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "devices_workspace_id_workspaces_id_fk": {
           "name": "devices_workspace_id_workspaces_id_fk",
           "tableFrom": "devices",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "devices_expo_push_token_unique": {
           "name": "devices_expo_push_token_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "expo_push_token"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -800,19 +795,19 @@
       "columns": {
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         }
@@ -835,50 +830,50 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "eligible_approvers_approval_id_approvals_id_fk": {
           "name": "eligible_approvers_approval_id_approvals_id_fk",
           "tableFrom": "eligible_approvers",
-          "tableTo": "approvals",
           "columnsFrom": [
             "approval_id"
           ],
+          "tableTo": "approvals",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "eligible_approvers_workspace_id_workspaces_id_fk": {
           "name": "eligible_approvers_workspace_id_workspaces_id_fk",
           "tableFrom": "eligible_approvers",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "eligible_approvers_user_id_users_id_fk": {
           "name": "eligible_approvers_user_id_users_id_fk",
           "tableFrom": "eligible_approvers",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -901,7 +896,7 @@
       "columns": {
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -924,15 +919,15 @@
         "external_nonces_destination_id_forwarding_destinations_id_fk": {
           "name": "external_nonces_destination_id_forwarding_destinations_id_fk",
           "tableFrom": "external_nonces",
-          "tableTo": "forwarding_destinations",
           "columnsFrom": [
             "destination_id"
           ],
+          "tableTo": "forwarding_destinations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -955,32 +950,31 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "origin_id": {
           "name": "origin_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1036,9 +1030,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "delivery_workspace_idx": {
           "name": "delivery_workspace_idx",
@@ -1057,50 +1051,50 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "forwarding_deliveries_workspace_id_workspaces_id_fk": {
           "name": "forwarding_deliveries_workspace_id_workspaces_id_fk",
           "tableFrom": "forwarding_deliveries",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "forwarding_deliveries_approval_id_approvals_id_fk": {
           "name": "forwarding_deliveries_approval_id_approvals_id_fk",
           "tableFrom": "forwarding_deliveries",
-          "tableTo": "approvals",
           "columnsFrom": [
             "approval_id"
           ],
+          "tableTo": "approvals",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "forwarding_deliveries_destination_id_forwarding_destinations_id_fk": {
           "name": "forwarding_deliveries_destination_id_forwarding_destinations_id_fk",
           "tableFrom": "forwarding_deliveries",
-          "tableTo": "forwarding_destinations",
           "columnsFrom": [
             "destination_id"
           ],
+          "tableTo": "forwarding_destinations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1115,14 +1109,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1161,7 +1154,7 @@
         },
         "mapped_user_id": {
           "name": "mapped_user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": false
         },
@@ -1210,37 +1203,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "forwarding_destinations_workspace_id_workspaces_id_fk": {
           "name": "forwarding_destinations_workspace_id_workspaces_id_fk",
           "tableFrom": "forwarding_destinations",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "forwarding_destinations_mapped_user_id_users_id_fk": {
           "name": "forwarding_destinations_mapped_user_id_users_id_fk",
           "tableFrom": "forwarding_destinations",
-          "tableTo": "users",
           "columnsFrom": [
             "mapped_user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1255,20 +1248,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "destination_id": {
           "name": "destination_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1325,37 +1317,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "forwarding_rules_workspace_id_workspaces_id_fk": {
           "name": "forwarding_rules_workspace_id_workspaces_id_fk",
           "tableFrom": "forwarding_rules",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "forwarding_rules_destination_id_forwarding_destinations_id_fk": {
           "name": "forwarding_rules_destination_id_forwarding_destinations_id_fk",
           "tableFrom": "forwarding_rules",
-          "tableTo": "forwarding_destinations",
           "columnsFrom": [
             "destination_id"
           ],
+          "tableTo": "forwarding_destinations",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1370,13 +1362,13 @@
       "columns": {
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "credential_id": {
           "name": "credential_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1423,15 +1415,15 @@
         "idempotency_keys_workspace_id_workspaces_id_fk": {
           "name": "idempotency_keys_workspace_id_workspaces_id_fk",
           "tableFrom": "idempotency_keys",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -1456,14 +1448,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1551,9 +1542,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "jobs_ready_idx": {
           "name": "jobs_ready_idx",
@@ -1572,24 +1563,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "jobs_workspace_id_workspaces_id_fk": {
           "name": "jobs_workspace_id_workspaces_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1604,13 +1595,13 @@
       "columns": {
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1654,37 +1645,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "memberships_workspace_id_workspaces_id_fk": {
           "name": "memberships_workspace_id_workspaces_id_fk",
           "tableFrom": "memberships",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "memberships_user_id_users_id_fk": {
           "name": "memberships_user_id_users_id_fk",
           "tableFrom": "memberships",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -1707,7 +1698,7 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "mayi_id",
           "primaryKey": true,
           "notNull": true
         },
@@ -1751,13 +1742,13 @@
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1810,28 +1801,28 @@
         "oauth_codes_workspace_id_workspaces_id_fk": {
           "name": "oauth_codes_workspace_id_workspaces_id_fk",
           "tableFrom": "oauth_codes",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "oauth_codes_user_id_users_id_fk": {
           "name": "oauth_codes_user_id_users_id_fk",
           "tableFrom": "oauth_codes",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1846,19 +1837,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
           "notNull": true
         },
         "approval_id": {
           "name": "approval_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -1905,38 +1896,38 @@
         "receipts_approval_id_approvals_id_fk": {
           "name": "receipts_approval_id_approvals_id_fk",
           "tableFrom": "receipts",
-          "tableTo": "approvals",
           "columnsFrom": [
             "approval_id"
           ],
+          "tableTo": "approvals",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "receipts_workspace_id_workspaces_id_fk": {
           "name": "receipts_workspace_id_workspaces_id_fk",
           "tableFrom": "receipts",
-          "tableTo": "workspaces",
           "columnsFrom": [
             "workspace_id"
           ],
+          "tableTo": "workspaces",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "receipts_approval_id_unique": {
           "name": "receipts_approval_id_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "approval_id"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1949,20 +1940,19 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "agent_id": {
           "name": "agent_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
         "family_id": {
           "name": "family_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -2003,25 +1993,25 @@
         "refresh_tokens_agent_id_agents_id_fk": {
           "name": "refresh_tokens_agent_id_agents_id_fk",
           "tableFrom": "refresh_tokens",
-          "tableTo": "agents",
           "columnsFrom": [
             "agent_id"
           ],
+          "tableTo": "agents",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "refresh_tokens_token_hash_unique": {
           "name": "refresh_tokens_token_hash_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "token_hash"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2034,14 +2024,13 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "user_id": {
           "name": "user_id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": false,
           "notNull": true
         },
@@ -2082,25 +2071,25 @@
         "sessions_user_id_users_id_fk": {
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
-          "tableTo": "users",
           "columnsFrom": [
             "user_id"
           ],
+          "tableTo": "users",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "sessions_token_hash_unique": {
           "name": "sessions_token_hash_unique",
-          "nullsNotDistinct": false,
           "columns": [
             "token_hash"
-          ]
+          ],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2113,10 +2102,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "email": {
           "name": "email",
@@ -2163,15 +2151,15 @@
           "columns": [
             {
               "expression": "lower(\"email\")",
-              "asc": true,
               "isExpression": true,
+              "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -2187,10 +2175,9 @@
       "columns": {
         "id": {
           "name": "id",
-          "type": "uuid",
+          "type": "mayi_id",
           "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
+          "notNull": true
         },
         "name": {
           "name": "name",
@@ -2288,10 +2275,10 @@
     }
   },
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},
