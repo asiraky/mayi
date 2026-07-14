@@ -1,0 +1,9 @@
+{
+  "name": "@mayi/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "bin": { "mayi": "./src/cli.ts" },
+  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
+  "dependencies": { "@mayi/contracts": "workspace:*" }
+}

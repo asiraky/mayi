@@ -1,0 +1,92 @@
+import { z } from "zod";
+
+export * from "./canonical";
+
+export const ApprovalState = z.enum(["DRAFT", "PENDING", "APPROVED", "DENIED", "EXPIRED", "CANCELLED"]);
+export type ApprovalState = z.infer<typeof ApprovalState>;
+
+export const EnforcementMode = z.enum(["cooperative", "verified", "consumed"]);
+export type EnforcementMode = z.infer<typeof EnforcementMode>;
+
+export const JsonValue: z.ZodType<unknown> = z.json();
+
+export const Action = z.object({
+  kind: z.string().min(1).max(100),
+  version: z.string().min(1).max(32),
+  audience: z.string().min(1).max(255),
+  parameters: z.record(z.string(), JsonValue),
+  resourceVersion: z.string().max(255).optional(),
+});
+export type Action = z.infer<typeof Action>;
+
+export const Artefact = z.object({
+  id: z.uuid(),
+  ordinal: z.number().int().nonnegative(),
+  filename: z.string().min(1).max(255),
+  mediaType: z.enum(["application/pdf", "image/png", "image/jpeg", "image/webp"]),
+  size: z.number().int().positive().max(25 * 1024 * 1024),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type Artefact = z.infer<typeof Artefact>;
+
+export const CreateApproval = z.object({
+  action: Action,
+  explanation: z.string().min(1).max(10_000),
+  expiresInSeconds: z.number().int().min(60).max(7 * 24 * 60 * 60).default(3600),
+  enforcement: EnforcementMode.default("cooperative"),
+  suggestedApproverId: z.uuid().optional(),
+});
+export type CreateApproval = z.infer<typeof CreateApproval>;
+
+export const SealApproval = z.object({ artefactIds: z.array(z.uuid()).max(20).default([]) });
+export const Decision = z.object({
+  decision: z.enum(["APPROVED", "DENIED"]),
+  comment: z.string().max(4_000).optional(),
+});
+export type Decision = z.infer<typeof Decision>;
+
+export const Approval = z.object({
+  id: z.uuid(),
+  workspaceId: z.uuid(),
+  agentId: z.uuid(),
+  state: ApprovalState,
+  action: Action,
+  explanation: z.string(),
+  enforcement: EnforcementMode,
+  actionDigest: z.string().nullable(),
+  manifestDigest: z.string().nullable(),
+  artefacts: z.array(Artefact),
+  createdAt: z.iso.datetime(),
+  sealedAt: z.iso.datetime().nullable(),
+  expiresAt: z.iso.datetime(),
+  decidedAt: z.iso.datetime().nullable(),
+  decisionComment: z.string().nullable(),
+  approverId: z.uuid().nullable(),
+  receipt: z.string().optional(),
+});
+export type Approval = z.infer<typeof Approval>;
+
+export const Session = z.object({
+  user: z.object({ id: z.uuid(), email: z.email(), displayName: z.string() }),
+  workspace: z.object({ id: z.uuid(), name: z.string() }),
+  recentAuthAt: z.iso.datetime(),
+});
+export type Session = z.infer<typeof Session>;
+
+export const Signup = z.object({
+  email: z.email(),
+  password: z.string().min(12).max(256),
+  displayName: z.string().min(1).max(100),
+  bootstrapSecret: z.string().min(20).optional(),
+});
+export const Signin = z.object({ email: z.email(), password: z.string().min(1).max(256) });
+
+export const AgentGrant = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  scopes: z.array(z.enum(["approval:create", "approval:read", "approval:cancel"])),
+  lastUsedAt: z.iso.datetime().nullable(),
+  revokedAt: z.iso.datetime().nullable(),
+});
+
+export type ApiError = { error: { code: string; message: string; details?: unknown } };

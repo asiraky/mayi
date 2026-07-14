@@ -1,0 +1,26 @@
+{
+  "name": "@mayi/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -e ../../.env -- nitro dev --dir .",
+    "build": "pnpm --filter @mayi/web build && nitro build",
+    "build:cloudflare": "pnpm --filter @mayi/web build && NITRO_PRESET=cloudflare_module nitro build",
+    "build:vercel": "pnpm --filter @mayi/web build && NITRO_PRESET=vercel nitro build",
+    "typecheck": "nitro prepare && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mayi/contracts": "workspace:*",
+    "@mayi/db": "workspace:*",
+    "@mayi/domain": "workspace:*",
+    "@mayi/receipts": "workspace:*",
+    "@mayi/storage": "workspace:*",
+    "@mayi/web": "workspace:*",
+    "h3": "^1.15.0",
+    "jose": "^6.2.0",
+    "nitropack": "2.13.4",
+    "postgres": "^3.4.0",
+    "zod": "^4.4.0"
+  }
+}

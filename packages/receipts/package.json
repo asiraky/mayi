@@ -1,0 +1,11 @@
+{
+  "name": "@mayi/receipts",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "generate-key": "tsx src/generate-key.ts"
+  },
+  "dependencies": { "@mayi/contracts": "workspace:*", "jose": "^6.2.0", "zod": "^4.4.0" }
+}

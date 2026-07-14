@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: mayi
+      POSTGRES_PASSWORD: mayi
+      POSTGRES_DB: mayi
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mayi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+  app:
+    build: .
+    profiles: ["full"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://mayi:mayi@postgres:5432/mayi
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
+      RECEIPT_PRIVATE_JWK: ${RECEIPT_PRIVATE_JWK}
+      RECEIPT_PUBLIC_JWK: ${RECEIPT_PUBLIC_JWK}
+      OBJECT_DIRECTORY: /var/lib/mayi/objects
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    ports: ["3000:3000"]
+    volumes: ["artefacts:/var/lib/mayi/objects"]
+    restart: unless-stopped
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    ports: ["80:80", "443:443"]
+    volumes: ["./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-data:/data"]
+volumes:
+  postgres-data:
+  artefacts:
+  caddy-data:

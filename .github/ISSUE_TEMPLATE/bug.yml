@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible problem in May I?.
+title: "bug: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities here. Use the private security advisory link instead.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe reproduction without credentials or private evidence.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options: [Local Node, Docker/VPS, Cloudflare, Vercel, Expo iOS, Expo Android, Other]
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed credentials, personal data, and sensitive approval evidence.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

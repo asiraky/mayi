@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "May I?",
+    "slug": "may-i",
+    "scheme": "mayi",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "app.mayi.mobile", "associatedDomains": ["applinks:app.mayi.example"] },
+    "android": { "package": "app.mayi.mobile", "intentFilters": [{ "action": "VIEW", "autoVerify": true, "data": [{ "scheme": "https", "host": "app.mayi.example", "pathPrefix": "/approval" }], "category": ["BROWSABLE", "DEFAULT"] }] },
+    "plugins": ["expo-router", "expo-secure-store", "expo-local-authentication", ["expo-notifications", { "sounds": [] }]],
+    "experiments": { "typedRoutes": true },
+    "extra": { "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" } }
+  }
+}

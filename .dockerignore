@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+**/.output
+**/.nitro
+**/dist
+.git
+.env
+data
+coverage

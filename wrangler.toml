@@ -1,0 +1,19 @@
+name = "may-i"
+main = "deploy/cloudflare-worker.ts"
+compatibility_date = "2026-07-14"
+compatibility_flags = ["nodejs_compat"]
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "REPLACE_WITH_HYPERDRIVE_ID"
+
+[[r2_buckets]]
+binding = "ARTEFACTS"
+bucket_name = "may-i-artefacts"
+
+[triggers]
+crons = ["* * * * *"]
+
+[assets]
+directory = "apps/server/.output/public"
+binding = "ASSETS"

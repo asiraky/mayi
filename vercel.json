@@ -1,0 +1,4 @@
+{
+  "buildCommand": "pnpm --filter @mayi/server build:vercel",
+  "crons": [{ "path": "/api/internal/jobs/drain", "schedule": "* * * * *" }]
+}
