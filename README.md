@@ -14,11 +14,9 @@ Picture a release agent working through a deployment. It has built the image and
 
 The approval covers only the submitted action. It does not give the agent a general green light.
 
-The repository is a pnpm TypeScript monorepo with a Nitro service, React web client, Expo app, MCP and HTTP interfaces, PostgreSQL, private artefact storage, and signed receipts. IDs are 12 ASCII letters generated with NanoID.
-
 ## Example
 
-An agent can create a draft through the TypeScript SDK, attach evidence if needed, then seal it for review:
+An agent can create a draft through the in-repository TypeScript client, attach evidence if needed, then seal it for review:
 
 ```ts
 import { MayIClient } from "@mayi/sdk";
@@ -45,7 +43,9 @@ const pending = await mayi.sealApproval(draft.id, []);
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
 
-The agent polls or reads the approval after the person decides. The executor verifies the signed receipt and recomputes the action digest before doing any work. See [the API guide](docs/API.md) for the HTTP and MCP versions of the same flow.
+The `@mayi/sdk` workspace package is currently source-only and is not published to npm. Both `await` expressions above cover short HTTP requests: sealing returns a `PENDING` approval immediately and does not hold the process open while a person decides. The caller must persist the approval ID and end its current invocation, then read the approval after its own scheduler resumes it. May I? currently supports polling for that read, but does not yet send a decision webhook back to the originating agent.
+
+After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. See [the API guide](docs/API.md) for the HTTP and MCP versions of the same flow.
 
 ## Run locally
 
