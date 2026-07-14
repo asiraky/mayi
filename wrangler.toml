@@ -3,6 +3,13 @@ main = "deploy/cloudflare-worker.ts"
 compatibility_date = "2026-07-14"
 compatibility_flags = ["nodejs_compat"]
 
+[vars]
+PUBLIC_ORIGIN = "https://app.mayi.sh"
+SESSION_COOKIE_SECURE = "true"
+RECEIPT_ISSUER = "https://app.mayi.sh"
+RECEIPT_AUDIENCE = "mayi-executor"
+RETENTION_DAYS = "90"
+
 [[routes]]
 pattern = "app.mayi.sh"
 custom_domain = true
