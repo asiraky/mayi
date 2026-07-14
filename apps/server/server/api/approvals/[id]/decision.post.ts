@@ -1,4 +1,4 @@
-import { Decision } from "@mayi/contracts";
+import { createId, Decision } from "@mayi/contracts";
 import { requireRecentAuthentication } from "@mayi/domain";
 import { signReceipt } from "@mayi/receipts";
 import { createError, defineEventHandler, getRouterParam } from "h3";
@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
         where id = ${approvalId} and state = 'PENDING'
       `;
       if (input.decision === "APPROVED") {
-        const id = crypto.randomUUID();
+        const id = createId();
         const action = approval.action as { audience?: string };
         const audience = action.audience ?? getConfig().receiptAudience;
         const exp = Math.min(Math.floor(expiresAt.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900);

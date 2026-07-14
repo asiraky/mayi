@@ -1,4 +1,4 @@
-import { SealApproval } from "@mayi/contracts";
+import { createId, SealApproval } from "@mayi/contracts";
 import { freezeDigests } from "@mayi/domain";
 import { createError, defineEventHandler, getRouterParam } from "h3";
 import { audit, requireAgent } from "../../../utils/auth";
@@ -43,8 +43,8 @@ export default defineEventHandler(async (event) => {
         policy_version = ${approval.policy_version}, sealed_at = now() where id = ${approvalId}
     `;
     await sql`
-      insert into jobs (workspace_id, type, dedupe_key, payload)
-      values (${auth.workspaceId}, 'push.approval_pending', ${approvalId}, ${JSON.stringify({ approvalId })}::jsonb) on conflict do nothing
+      insert into jobs (id, workspace_id, type, dedupe_key, payload)
+      values (${createId()}, ${auth.workspaceId}, 'push.approval_pending', ${approvalId}, ${JSON.stringify({ approvalId })}::jsonb) on conflict do nothing
     `;
     const rules = await sql`
       select r.id, r.destination_id, d.type from forwarding_rules r join forwarding_destinations d on d.id = r.destination_id
@@ -53,12 +53,12 @@ export default defineEventHandler(async (event) => {
     `;
     for (const rule of rules) {
       const deliveries = await sql`
-        insert into forwarding_deliveries (workspace_id, approval_id, destination_id, origin_id)
-        values (${auth.workspaceId}, ${approvalId}, ${rule.destination_id}, ${approvalId}) on conflict do nothing returning id
+        insert into forwarding_deliveries (id, workspace_id, approval_id, destination_id, origin_id)
+        values (${createId()}, ${auth.workspaceId}, ${approvalId}, ${rule.destination_id}, ${approvalId}) on conflict do nothing returning id
       `;
       if (deliveries[0]) await sql`
-        insert into jobs (workspace_id, type, dedupe_key, payload) values
-        (${auth.workspaceId}, ${rule.type === "EMAIL" ? "email.approval_pending" : "webhook.approval_pending"}, ${`${approvalId}:${rule.destination_id}`}, ${JSON.stringify({ approvalId, destinationId: String(rule.destination_id), deliveryId: String(deliveries[0].id) })}::jsonb) on conflict do nothing
+        insert into jobs (id, workspace_id, type, dedupe_key, payload) values
+        (${createId()}, ${auth.workspaceId}, ${rule.type === "EMAIL" ? "email.approval_pending" : "webhook.approval_pending"}, ${`${approvalId}:${rule.destination_id}`}, ${JSON.stringify({ approvalId, destinationId: String(rule.destination_id), deliveryId: String(deliveries[0].id) })}::jsonb) on conflict do nothing
       `;
     }
     await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.sealed", subjectType: "approval", subjectId: approvalId, metadata: digests }, sql);

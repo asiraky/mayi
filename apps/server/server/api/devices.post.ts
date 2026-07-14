@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createId } from "@mayi/contracts";
 import { defineEventHandler } from "h3";
 import { requireUser } from "../utils/auth";
 import { bodyAs } from "../utils/http";
@@ -9,8 +10,9 @@ const Device = z.object({ token: z.string().startsWith("ExponentPushToken[").max
 export default defineEventHandler(async (event) => {
   const auth = await requireUser(event);
   const input = await bodyAs(event, Device);
+  const id = createId();
   await database().sql`
-    insert into devices (user_id, workspace_id, expo_push_token, platform) values (${auth.userId}, ${auth.workspaceId}, ${input.token}, ${input.platform})
+    insert into devices (id, user_id, workspace_id, expo_push_token, platform) values (${id}, ${auth.userId}, ${auth.workspaceId}, ${input.token}, ${input.platform})
     on conflict (expo_push_token) do update set user_id = excluded.user_id, workspace_id = excluded.workspace_id, active = true, last_seen_at = now()
   `;
   return { ok: true };

@@ -80,14 +80,14 @@ async function email(job: Job): Promise<void> {
 export default defineEventHandler(async (event) => {
   const expected = process.env.CRON_SECRET ?? ""; const supplied = getHeader(event, "authorization")?.replace(/^Bearer /, "") ?? "";
   if (!expected || !timingSafeEqual(expected, supplied)) throw createError({ statusCode: 401, statusMessage: "Job runner authentication failed" });
-  await database().sql`
-    with expired as (
-      update approvals set state = 'EXPIRED', decided_at = now() where state = 'PENDING' and expires_at <= now()
-      returning id, workspace_id
-    )
-    insert into audit_events (workspace_id, actor_type, event_type, subject_type, subject_id, metadata)
-    select workspace_id, 'system', 'approval.expired', 'approval', id, '{}'::jsonb from expired
+  const expired = await database().sql`
+    update approvals set state = 'EXPIRED', decided_at = now()
+    where state = 'PENDING' and expires_at <= now()
+    returning id, workspace_id
   `;
+  for (const approval of expired) {
+    await audit({ workspaceId: String(approval.workspace_id), actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: String(approval.id) });
+  }
   let processed = 0;
   for (; processed < 25; processed++) {
     const job = await nextJob(); if (!job) break;

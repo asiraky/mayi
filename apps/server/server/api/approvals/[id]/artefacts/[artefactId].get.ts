@@ -9,7 +9,7 @@ export default defineEventHandler(async (event) => {
   const rows = await database().sql`
     select f.object_key, f.filename, f.media_type from artefacts f join approvals a on a.id = f.approval_id
     where f.id = ${artefactId} and f.approval_id = ${approvalId} and f.workspace_id = ${auth.workspaceId}
-      and (${auth.kind === "user"} or a.agent_id = ${auth.kind === "agent" ? auth.agentId : null}::uuid)
+      and (${auth.kind === "user"} or a.agent_id = ${auth.kind === "agent" ? auth.agentId : null}::mayi_id)
   `;
   const row = rows[0];
   if (!row) throw createError({ statusCode: 404, statusMessage: "Artefact not found" });

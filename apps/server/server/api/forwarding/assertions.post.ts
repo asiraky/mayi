@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createId, Id } from "@mayi/contracts";
 import { importJWK, jwtVerify } from "jose";
 import { signReceipt } from "@mayi/receipts";
 import { createError, defineEventHandler, readBody } from "h3";
@@ -9,8 +10,8 @@ import { audit } from "../../utils/auth";
 import { serializeApproval } from "../../utils/serialize";
 
 const AssertionClaims = z.object({
-  iss: z.uuid(), aud: z.union([z.string(), z.array(z.string())]), iat: z.number().int(), exp: z.number().int(),
-  destination_id: z.uuid(), workspace_id: z.uuid(), request_id: z.uuid(), action_digest: z.string().length(64),
+  iss: Id, aud: z.union([z.string(), z.array(z.string())]), iat: z.number().int(), exp: z.number().int(),
+  destination_id: Id, workspace_id: Id, request_id: Id, action_digest: z.string().length(64),
   artefact_manifest_digest: z.string().length(64), policy_version: z.number().int().positive(), decision: z.enum(["APPROVED", "DENIED"]),
   actor: z.string().min(1).max(200), nonce: z.string().min(16).max(200), comment: z.string().max(4000).optional(),
 });
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
     catch { throw createError({ statusCode: 409, statusMessage: "External assertion nonce was already used" }); }
     await sql`update approvals set state = ${claims.decision}, decided_at = now(), approver_id = ${destination.mapped_user_id}, decision_comment = ${claims.comment ?? null} where id = ${claims.request_id}`;
     if (claims.decision === "APPROVED") {
-      const receiptId = crypto.randomUUID(); const now = new Date(approval.database_now as Date); const expires = new Date(approval.expires_at as Date);
+      const receiptId = createId(); const now = new Date(approval.database_now as Date); const expires = new Date(approval.expires_at as Date);
       const exp = Math.min(Math.floor(expires.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900); const keys = await signingKeys();
       const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: (approval.action as { audience: string }).audience, sub: claims.request_id, jti: receiptId,
         iat: Math.floor(now.getTime() / 1000), exp, workspace_id: claims.workspace_id, agent_id: String(approval.agent_id), policy_version: claims.policy_version,

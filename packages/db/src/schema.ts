@@ -1,8 +1,12 @@
 import { sql } from "drizzle-orm";
 import {
-  boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
-  timestamp, uniqueIndex, uuid,
+  boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
+  timestamp, uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+const identifier = customType<{ data: string }>({
+  dataType: () => "mayi_id",
+});
 
 export const membershipRole = pgEnum("membership_role", ["OWNER", "APPROVER", "MEMBER"]);
 export const approvalState = pgEnum("approval_state", ["DRAFT", "PENDING", "APPROVED", "DENIED", "EXPIRED", "CANCELLED"]);
@@ -14,7 +18,7 @@ export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "F
 const createdAt = timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 
 export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
+  id: identifier("id").primaryKey(),
   email: text("email").notNull(),
   displayName: text("display_name").notNull(),
   passwordHash: text("password_hash").notNull(),
@@ -24,7 +28,7 @@ export const users = pgTable("users", {
 }, (t) => [uniqueIndex("users_email_lower_uidx").on(sql`lower(${t.email})`)]);
 
 export const workspaces = pgTable("workspaces", {
-  id: uuid("id").defaultRandom().primaryKey(),
+  id: identifier("id").primaryKey(),
   name: text("name").notNull(),
   policyVersion: integer("policy_version").default(1).notNull(),
   retentionDays: integer("retention_days").default(90).notNull(),
@@ -32,8 +36,8 @@ export const workspaces = pgTable("workspaces", {
 });
 
 export const memberships = pgTable("memberships", {
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  userId: identifier("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   role: membershipRole("role").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt,
@@ -41,8 +45,8 @@ export const memberships = pgTable("memberships", {
 }, (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), index("memberships_user_idx").on(t.userId)]);
 
 export const sessions = pgTable("sessions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  userId: identifier("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   recentAuthAt: timestamp("recent_auth_at", { withTimezone: true }).notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -51,21 +55,21 @@ export const sessions = pgTable("sessions", {
 });
 
 export const agents = pgTable("agents", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
   clientId: text("client_id"),
   scopes: text("scopes").array().notNull(),
   credentialHash: text("credential_hash"),
   credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
-  createdBy: uuid("created_by").references(() => users.id).notNull(),
+  createdBy: identifier("created_by").references(() => users.id).notNull(),
   createdAt,
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, (t) => [index("agents_workspace_idx").on(t.workspaceId)]);
 
 export const oauthClients = pgTable("oauth_clients", {
-  id: text("id").primaryKey(),
+  id: identifier("id").primaryKey(),
   name: text("name").notNull(),
   redirectUris: text("redirect_uris").array().notNull(),
   createdAt,
@@ -73,8 +77,8 @@ export const oauthClients = pgTable("oauth_clients", {
 
 export const oauthCodes = pgTable("oauth_codes", {
   codeHash: text("code_hash").primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  userId: identifier("user_id").references(() => users.id).notNull(),
   clientId: text("client_id").notNull(),
   redirectUri: text("redirect_uri").notNull(),
   codeChallenge: text("code_challenge").notNull(),
@@ -85,9 +89,9 @@ export const oauthCodes = pgTable("oauth_codes", {
 });
 
 export const refreshTokens = pgTable("refresh_tokens", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }).notNull(),
-  familyId: uuid("family_id").notNull(),
+  id: identifier("id").primaryKey(),
+  agentId: identifier("agent_id").references(() => agents.id, { onDelete: "cascade" }).notNull(),
+  familyId: identifier("family_id").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt,
@@ -96,9 +100,9 @@ export const refreshTokens = pgTable("refresh_tokens", {
 });
 
 export const approvals = pgTable("approvals", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  agentId: uuid("agent_id").references(() => agents.id).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  agentId: identifier("agent_id").references(() => agents.id).notNull(),
   state: approvalState("state").default("DRAFT").notNull(),
   action: jsonb("action").notNull(),
   explanation: text("explanation").notNull(),
@@ -111,7 +115,7 @@ export const approvals = pgTable("approvals", {
   createdAt,
   sealedAt: timestamp("sealed_at", { withTimezone: true }),
   decidedAt: timestamp("decided_at", { withTimezone: true }),
-  approverId: uuid("approver_id").references(() => users.id),
+  approverId: identifier("approver_id").references(() => users.id),
   decisionComment: text("decision_comment"),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
 }, (t) => [
@@ -120,9 +124,9 @@ export const approvals = pgTable("approvals", {
 ]);
 
 export const artefacts = pgTable("artefacts", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
   objectKey: text("object_key").notNull().unique(),
   filename: text("filename").notNull(),
   mediaType: text("media_type").notNull(),
@@ -133,20 +137,20 @@ export const artefacts = pgTable("artefacts", {
 }, (t) => [index("artefacts_approval_idx").on(t.workspaceId, t.approvalId)]);
 
 export const approvalArtefacts = pgTable("approval_artefacts", {
-  approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
-  artefactId: uuid("artefact_id").references(() => artefacts.id, { onDelete: "restrict" }).notNull(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  artefactId: identifier("artefact_id").references(() => artefacts.id, { onDelete: "restrict" }).notNull(),
   ordinal: integer("ordinal").notNull(),
 }, (t) => [primaryKey({ columns: [t.approvalId, t.artefactId] }), uniqueIndex("approval_artefact_ordinal_uidx").on(t.approvalId, t.ordinal)]);
 
 export const eligibleApprovers = pgTable("eligible_approvers", {
-  approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  userId: identifier("user_id").references(() => users.id).notNull(),
 }, (t) => [primaryKey({ columns: [t.approvalId, t.userId] }), index("eligible_user_idx").on(t.workspaceId, t.userId)]);
 
 export const idempotencyKeys = pgTable("idempotency_keys", {
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  credentialId: uuid("credential_id").notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  credentialId: identifier("credential_id").notNull(),
   operation: text("operation").notNull(),
   key: text("key").notNull(),
   payloadHash: text("payload_hash").notNull(),
@@ -156,9 +160,9 @@ export const idempotencyKeys = pgTable("idempotency_keys", {
 }, (t) => [primaryKey({ columns: [t.workspaceId, t.credentialId, t.operation, t.key] })]);
 
 export const receipts = pgTable("receipts", {
-  id: uuid("id").primaryKey(),
-  approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull().unique(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull().unique(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   audience: text("audience").notNull(),
   compactJws: text("compact_jws").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -168,21 +172,21 @@ export const receipts = pgTable("receipts", {
 });
 
 export const auditEvents = pgTable("audit_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   actorType: text("actor_type").notNull(),
-  actorId: uuid("actor_id"),
+  actorId: identifier("actor_id"),
   eventType: text("event_type").notNull(),
   subjectType: text("subject_type").notNull(),
-  subjectId: uuid("subject_id").notNull(),
+  subjectId: identifier("subject_id").notNull(),
   metadata: jsonb("metadata").default({}).notNull(),
   createdAt,
 }, (t) => [index("audit_workspace_created_idx").on(t.workspaceId, t.createdAt)]);
 
 export const devices = pgTable("devices", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  userId: identifier("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   expoPushToken: text("expo_push_token").notNull().unique(),
   platform: text("platform").notNull(),
   active: boolean("active").default(true).notNull(),
@@ -191,8 +195,8 @@ export const devices = pgTable("devices", {
 });
 
 export const jobs = pgTable("jobs", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   type: text("type").notNull(),
   dedupeKey: text("dedupe_key").notNull(),
   payload: jsonb("payload").notNull(),
@@ -206,14 +210,14 @@ export const jobs = pgTable("jobs", {
 }, (t) => [uniqueIndex("jobs_dedupe_uidx").on(t.type, t.dedupeKey), index("jobs_ready_idx").on(t.state, t.availableAt)]);
 
 export const forwardingDestinations = pgTable("forwarding_destinations", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   type: destinationType("type").notNull(),
   name: text("name").notNull(),
   endpoint: text("endpoint").notNull(),
   mode: destinationMode("mode").default("notify_only").notNull(),
   publicJwk: jsonb("public_jwk"),
-  mappedUserId: uuid("mapped_user_id").references(() => users.id),
+  mappedUserId: identifier("mapped_user_id").references(() => users.id),
   verificationHash: text("verification_hash"),
   verificationExpiresAt: timestamp("verification_expires_at", { withTimezone: true }),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -222,9 +226,9 @@ export const forwardingDestinations = pgTable("forwarding_destinations", {
 }, (t) => [index("destinations_workspace_idx").on(t.workspaceId)]);
 
 export const forwardingRules = pgTable("forwarding_rules", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  destinationId: uuid("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  destinationId: identifier("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
   actionKind: text("action_kind").notNull(),
   includeAction: boolean("include_action").default(false).notNull(),
   includeArtefactMetadata: boolean("include_artefact_metadata").default(false).notNull(),
@@ -233,11 +237,11 @@ export const forwardingRules = pgTable("forwarding_rules", {
 }, (t) => [index("forwarding_rules_match_idx").on(t.workspaceId, t.actionKind)]);
 
 export const forwardingDeliveries = pgTable("forwarding_deliveries", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  workspaceId: uuid("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  approvalId: uuid("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
-  destinationId: uuid("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
-  originId: uuid("origin_id").notNull(),
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  destinationId: identifier("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
+  originId: identifier("origin_id").notNull(),
   hopCount: integer("hop_count").default(1).notNull(),
   state: text("state").default("PENDING").notNull(),
   responseCode: integer("response_code"),
@@ -246,7 +250,7 @@ export const forwardingDeliveries = pgTable("forwarding_deliveries", {
 }, (t) => [uniqueIndex("delivery_approval_destination_uidx").on(t.approvalId, t.destinationId), index("delivery_workspace_idx").on(t.workspaceId, t.createdAt)]);
 
 export const externalNonces = pgTable("external_nonces", {
-  destinationId: uuid("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
+  destinationId: identifier("destination_id").references(() => forwardingDestinations.id, { onDelete: "cascade" }).notNull(),
   nonce: text("nonce").notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }).defaultNow().notNull(),
 }, (t) => [primaryKey({ columns: [t.destinationId, t.nonce] })]);
