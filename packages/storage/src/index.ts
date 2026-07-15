@@ -1,20 +1,26 @@
-import { GetObjectCommand, PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
 
 export interface ObjectStore {
   putImmutable(key: string, bytes: Uint8Array, mediaType: string): Promise<void>;
+  putIfAbsent(key: string, bytes: Uint8Array, mediaType: string): Promise<"created" | "exists">;
   get(key: string): Promise<{ bytes: Uint8Array; mediaType?: string }>;
+  delete(key: string): Promise<void>;
 }
 
 export interface R2BucketLike {
   put(key: string, value: Uint8Array, options?: { onlyIf?: { etagDoesNotMatch: string }; httpMetadata?: { contentType: string }; customMetadata?: Record<string, string> }): Promise<unknown>;
   get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer>; httpMetadata?: { contentType?: string } } | null>;
+  delete(key: string): Promise<void>;
 }
 
 export class R2ObjectStore implements ObjectStore {
   constructor(private readonly bucket: R2BucketLike) {}
   async putImmutable(key: string, bytes: Uint8Array, mediaType: string): Promise<void> {
+    if (await this.putIfAbsent(key, bytes, mediaType) === "exists") throw new Error("Object already exists");
+  }
+  async putIfAbsent(key: string, bytes: Uint8Array, mediaType: string): Promise<"created" | "exists"> {
     const result = await this.bucket.put(key, bytes, { onlyIf: { etagDoesNotMatch: "*" }, httpMetadata: { contentType: mediaType }, customMetadata: { immutable: "true" } });
-    if (!result) throw new Error("Object already exists");
+    return result ? "created" : "exists";
   }
   async get(key: string): Promise<{ bytes: Uint8Array; mediaType?: string }> {
     const object = await this.bucket.get(key); if (!object) throw new Error("Object not found");
@@ -22,6 +28,7 @@ export class R2ObjectStore implements ObjectStore {
     if (object.httpMetadata?.contentType) response.mediaType = object.httpMetadata.contentType;
     return response;
   }
+  async delete(key: string): Promise<void> { await this.bucket.delete(key); }
 }
 
 export class FileObjectStore implements ObjectStore {
@@ -37,17 +44,34 @@ export class FileObjectStore implements ObjectStore {
   }
 
   async putImmutable(key: string, bytes: Uint8Array): Promise<void> {
+    if (await this.putIfAbsent(key, bytes) === "exists") throw new Error("Object already exists");
+  }
+
+  async putIfAbsent(key: string, bytes: Uint8Array): Promise<"created" | "exists"> {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const target = await this.pathFor(key);
     await fs.mkdir(path.dirname(target), { recursive: true });
-    const handle = await fs.open(target, "wx");
-    try { await handle.writeFile(bytes); } finally { await handle.close(); }
+    try {
+      const handle = await fs.open(target, "wx");
+      try { await handle.writeFile(bytes); } finally { await handle.close(); }
+      return "created";
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return "exists";
+      throw error;
+    }
   }
 
   async get(key: string): Promise<{ bytes: Uint8Array }> {
     const fs = await import("node:fs/promises");
     return { bytes: new Uint8Array(await fs.readFile(await this.pathFor(key))) };
+  }
+
+  async delete(key: string): Promise<void> {
+    const fs = await import("node:fs/promises");
+    try { await fs.unlink(await this.pathFor(key)); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 }
 
@@ -58,10 +82,20 @@ export class S3ObjectStore implements ObjectStore {
   }
 
   async putImmutable(key: string, bytes: Uint8Array, mediaType: string): Promise<void> {
-    await this.client.send(new PutObjectCommand({
-      Bucket: this.bucket, Key: key, Body: bytes, ContentType: mediaType,
-      IfNoneMatch: "*", Metadata: { immutable: "true" },
-    }));
+    if (await this.putIfAbsent(key, bytes, mediaType) === "exists") throw new Error("Object already exists");
+  }
+
+  async putIfAbsent(key: string, bytes: Uint8Array, mediaType: string): Promise<"created" | "exists"> {
+    try {
+      await this.client.send(new PutObjectCommand({
+        Bucket: this.bucket, Key: key, Body: bytes, ContentType: mediaType,
+        IfNoneMatch: "*", Metadata: { immutable: "true" },
+      }));
+      return "created";
+    } catch (error) {
+      if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 412) return "exists";
+      throw error;
+    }
   }
 
   async get(key: string): Promise<{ bytes: Uint8Array; mediaType?: string }> {
@@ -70,6 +104,10 @@ export class S3ObjectStore implements ObjectStore {
     const response: { bytes: Uint8Array; mediaType?: string } = { bytes: await result.Body.transformToByteArray() };
     if (result.ContentType) response.mediaType = result.ContentType;
     return response;
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }
 

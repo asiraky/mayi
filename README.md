@@ -16,36 +16,34 @@ The approval covers only the submitted action. It does not give the agent a gene
 
 ## Example
 
-An agent can create a draft through the in-repository TypeScript client, attach evidence if needed, then seal it for review:
+An agent can request an approval through the in-repository TypeScript client:
 
 ```ts
-import { MayIClient } from "@mayi/sdk";
+import { MayiClient } from "@mayi/sdk";
 
-const mayi = new MayIClient("https://mayi.example.com", process.env.MAYI_AGENT_TOKEN);
-
-const draft = await mayi.createApproval({
-  action: {
-    kind: "deploy.release",
-    version: "1",
-    audience: "production-deployer",
-    parameters: {
-      environment: "production",
-      releaseDigest: "sha256:8c7f...",
-      expectedCurrentRelease: "sha256:12ab...",
-    },
-  },
-  explanation: "Deploy the release that passed CI.",
-  enforcement: "verified",
-  expiresInSeconds: 900,
+const mayi = new MayiClient({
+  origin: "https://mayi.example.com",
+  // Fetch a current OAuth token for every authenticated call. The SDK never stores it.
+  getAccessToken: async () => hostOAuthSession.getAccessToken(),
 });
 
-const pending = await mayi.sealApproval(draft.id, []);
+const pending = await mayi.approvals.request({
+  action: {
+    kind: "tool-call",
+    toolName: "deploy_release",
+    callId: "call-42",
+    input: { environment: "production", releaseDigest: "sha256:8c7f..." },
+  },
+  explanation: "Deploy the release that passed CI.",
+  expiresInSeconds: 900,
+  callback: { url: "https://agent.example.com/mayi/callback", state: sealedCallbackState },
+}, { idempotencyKey: eveRequestId });
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
 
-The `@mayi/sdk` workspace package is currently source-only and is not published to npm. Both `await` expressions above cover short HTTP requests: sealing returns a `PENDING` approval immediately and does not hold the process open while a person decides. The caller must persist the approval ID and end its current invocation, then read the approval after its own scheduler resumes it. May I? currently supports polling for that read, but does not yet send a decision webhook back to the originating agent.
+The `@mayi/sdk` workspace package builds a publishable npm tarball containing ESM JavaScript, TypeScript declarations, and source maps. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. A signed terminal callback is the normal resume path; polling remains useful only for reconciliation or fallback. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
 
-After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. See [the API guide](docs/API.md) for the HTTP and MCP versions of the same flow.
+After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. Tool-call approvals are cooperative: without a versioned executor-owned schema, May I? cannot truthfully mark an arbitrary tool call verified or consumed. See the [`@mayi/sdk` quick start](packages/sdk/README.md), [`@mayi/eve` quick start](packages/eve/README.md), and [API guide](docs/API.md).
 
 ## Run locally
 

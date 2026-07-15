@@ -1,5 +1,5 @@
-import type { Approval, Session } from "@mayi/contracts";
-import { MayIClient } from "@mayi/sdk";
+import { actionName, type Approval, type Session } from "@mayi/contracts";
+import { MayiClient } from "@mayi/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { StateBadge } from "~/components/state-badge";
 import { ThemeToggle } from "~/components/theme-toggle";
@@ -10,7 +10,12 @@ import { relativeTime } from "~/lib/format";
 import { ApprovalDetail } from "~/screens/approval-detail";
 import { Auth } from "~/screens/auth";
 
-const api = new MayIClient(location.origin);
+const api = new MayiClient({
+  origin: location.origin,
+  // The SDK still rejects every non-loopback HTTP host. Key this opt-in to the
+  // real origin so the documented production-like local server works too.
+  dangerouslyAllowInsecureHttpForDevelopment: location.protocol === "http:",
+});
 
 const TABS = ["inbox", "history", "agents", "activity"] as const;
 type Tab = (typeof TABS)[number];
@@ -45,7 +50,7 @@ export function App() {
   const [secret, setSecret] = useState("");
 
   const load = useCallback(async () => {
-    const values = await api.approvals();
+    const values = await api.listApprovals();
     setItems(values);
 
     // A notification deep-links to ?approval=<id>; open it if it is really ours.
@@ -164,7 +169,7 @@ export function App() {
                     <Row key={item.id} onClick={() => setSelected(item.id)}>
                       <span className="grid min-w-0 gap-1">
                         {/* The action is machine data; the agent's explanation is not. */}
-                        <span className="truncate font-mono text-[14px] font-medium">{item.action.kind}</span>
+                        <span className="truncate font-mono text-[14px] font-medium">{actionName(item.action)}</span>
                         <span className="truncate text-[13px] text-muted-foreground">{item.explanation}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-3">

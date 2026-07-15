@@ -7,5 +7,6 @@ export default defineEventHandler((event) => {
   if (cloudflare?.env) configureEdgeRuntime({
     ...(cloudflare.env.HYPERDRIVE?.connectionString ? { databaseUrl: cloudflare.env.HYPERDRIVE.connectionString } : {}),
     ...(cloudflare.env.ARTEFACTS ? { objectStore: new R2ObjectStore(cloudflare.env.ARTEFACTS) } : {}),
+    strictlyPublicFetch: true,
   });
 });

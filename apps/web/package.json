@@ -7,7 +7,7 @@
     "sync:theme": "mkdir -p public/fonts && cp ../../packages/theme/theme.js public/theme.js && cp ../../packages/theme/fonts/*.woff2 public/fonts/",
     "predev": "pnpm sync:theme",
     "dev": "vite",
-    "prebuild": "pnpm sync:theme",
+    "prebuild": "pnpm --filter @mayi/sdk build && pnpm sync:theme",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit"
   },

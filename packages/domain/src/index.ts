@@ -1,5 +1,5 @@
 import type { Action, ApprovalState, Artefact } from "@mayi/contracts";
-import { canonicalDigest, Id } from "@mayi/contracts";
+import { actionName, canonicalDigest, Id, isToolCallAction } from "@mayi/contracts";
 import { z } from "zod";
 
 export class DomainError extends Error {
@@ -17,7 +17,8 @@ export function decisionTransition(state: ApprovalState, expiresAt: Date, now: D
 }
 
 export function isHighRisk(action: Action): boolean {
-  return action.kind.startsWith("admin.") || action.kind.endsWith(".delete") || action.kind.endsWith(".transfer");
+  const name = actionName(action);
+  return name.startsWith("admin.") || name.endsWith(".delete") || name.endsWith(".transfer");
 }
 
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
@@ -29,13 +30,19 @@ export const actionSchemas: Record<string, z.ZodType> = {
 };
 
 export function validateActionForEnforcement(action: Action, enforcement: "cooperative" | "verified" | "consumed"): void {
+  if (isToolCallAction(action)) {
+    if (enforcement !== "cooperative") {
+      throw new DomainError("unverified_action_kind", "Tool-call actions require cooperative enforcement", 422);
+    }
+    return;
+  }
   const schema = actionSchemas[`${action.kind}@${action.version}`];
   if (!schema) {
     if (enforcement !== "cooperative") throw new DomainError("unverified_action_kind", "Verified or consumed enforcement requires a registered exact-action schema", 422);
     return;
   }
-  const result = schema.safeParse(action.parameters);
-  if (!result.success) throw new DomainError("invalid_exact_action", "Action parameters do not match the registered exact-action schema", 422);
+  const result = schema.safeParse(action.input);
+  if (!result.success) throw new DomainError("invalid_exact_action", "Action input does not match the registered exact-action schema", 422);
 }
 
 export function requireRecentAuthentication(recentAuthAt: Date, now: Date, maxAgeSeconds = 300): void {

@@ -1,0 +1,1 @@
+ALTER TABLE "jobs" ADD COLUMN "lease_token" "mayi_id";

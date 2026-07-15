@@ -1,15 +1,20 @@
-import type { Artefact } from "@mayi/contracts";
+import { Action, type Artefact } from "@mayi/contracts";
+import type { DatabaseSql } from "@mayi/db";
 import { database } from "./runtime";
 
-export async function serializeApproval(workspaceId: string, approvalId: string) {
-  const rows = await database().sql`
+export async function serializeApproval(
+  workspaceId: string,
+  approvalId: string,
+  sql: DatabaseSql = database().sql,
+) {
+  const rows = await sql`
     select a.*, r.compact_jws
     from approvals a left join receipts r on r.approval_id = a.id
     where a.workspace_id = ${workspaceId} and a.id = ${approvalId} limit 1
   `;
   const row = rows[0];
   if (!row) return null;
-  const artefactRows = await database().sql`
+  const artefactRows = await sql`
     select f.id, aa.ordinal, f.filename, f.media_type, f.size, f.sha256
     from approval_artefacts aa join artefacts f on f.id = aa.artefact_id
     where aa.approval_id = ${approvalId} and f.workspace_id = ${workspaceId}
@@ -17,7 +22,7 @@ export async function serializeApproval(workspaceId: string, approvalId: string)
   `;
   return {
     id: String(row.id), workspaceId: String(row.workspace_id), agentId: String(row.agent_id), state: row.state,
-    action: row.action, explanation: row.explanation, enforcement: row.enforcement,
+    action: Action.parse(row.action), explanation: row.explanation, enforcement: row.enforcement,
     actionDigest: row.action_digest, manifestDigest: row.manifest_digest,
     artefacts: artefactRows.map((item, ordinal): Artefact => ({
       id: String(item.id), ordinal, filename: String(item.filename), mediaType: item.media_type as Artefact["mediaType"],

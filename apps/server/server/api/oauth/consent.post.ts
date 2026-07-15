@@ -1,11 +1,15 @@
-import { createError, defineEventHandler, readBody, sendRedirect } from "h3";
+import { createError, defineEventHandler, sendRedirect } from "h3";
+import { z } from "zod";
 import { requireUser, audit } from "../../utils/auth";
 import { database } from "../../utils/runtime";
 import { randomToken, tokenHash } from "../../utils/crypto";
+import { readBoundedJsonOrFormBody } from "../../utils/http";
 
 export default defineEventHandler(async (event) => {
   const auth = await requireUser(event);
-  const body = await readBody<Record<string, string>>(event);
+  const parsed = z.record(z.string(), z.string()).safeParse(await readBoundedJsonOrFormBody(event, 32 * 1024));
+  if (!parsed.success) throw createError({ statusCode: 400, statusMessage: "Invalid consent request" });
+  const body = parsed.data;
   const clients = await database().sql`select redirect_uris from oauth_clients where id = ${body.client_id ?? ""}`;
   if (!clients[0] || !(clients[0].redirect_uris as string[]).includes(body.redirect_uri ?? "")) throw createError({ statusCode: 400, statusMessage: "Invalid client redirect" });
   const target = new URL(body.redirect_uri!);

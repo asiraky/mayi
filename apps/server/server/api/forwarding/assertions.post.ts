@@ -1,13 +1,15 @@
 import { z } from "zod";
-import { createId, Id } from "@mayi/contracts";
+import { actionAudience, Action, createId, Id } from "@mayi/contracts";
 import { importJWK, jwtVerify } from "jose";
 import { signReceipt } from "@mayi/receipts";
-import { createError, defineEventHandler, readBody } from "h3";
+import { createError, defineEventHandler } from "h3";
 import { database } from "../../utils/runtime";
 import { getConfig } from "../../utils/config";
 import { signingKeys } from "../../utils/signer";
 import { audit } from "../../utils/auth";
 import { serializeApproval } from "../../utils/serialize";
+import { activateApprovalCallback } from "../../utils/callback-outbox";
+import { readBoundedJsonBody } from "../../utils/http";
 
 const AssertionClaims = z.object({
   iss: Id, aud: z.union([z.string(), z.array(z.string())]), iat: z.number().int(), exp: z.number().int(),
@@ -17,7 +19,7 @@ const AssertionClaims = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-  const body = z.object({ assertion: z.string().min(40) }).parse(await readBody(event));
+  const body = z.object({ assertion: z.string().min(40) }).parse(await readBoundedJsonBody(event, 128 * 1024));
   let hint: { destination_id?: string };
   try { hint = JSON.parse(Buffer.from(body.assertion.split(".")[1] ?? "", "base64url").toString()); } catch { throw createError({ statusCode: 400, statusMessage: "Malformed assertion" }); }
   if (!hint.destination_id) throw createError({ statusCode: 400, statusMessage: "Assertion lacks destination binding" });
@@ -27,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const verified = await jwtVerify(body.assertion, key, { issuer: String(destination.id), audience: getConfig().publicOrigin, algorithms: ["EdDSA", "ES256"] });
   const claims = AssertionClaims.parse(verified.payload);
   if (claims.destination_id !== destination.id || claims.workspace_id !== destination.workspace_id) throw createError({ statusCode: 403, statusMessage: "Assertion trust relationship mismatch" });
-  await database().sql.begin("isolation level serializable", async (sql) => {
+  await database().sql.begin(async (sql) => {
     const rows = await sql`
       select a.*, now() as database_now from approvals a join forwarding_deliveries fd on fd.approval_id = a.id
       where a.id = ${claims.request_id} and a.workspace_id = ${claims.workspace_id} and fd.destination_id = ${claims.destination_id} and fd.state = 'DELIVERED' for update of a
@@ -37,6 +39,7 @@ export default defineEventHandler(async (event) => {
     if (String(approval.action_digest) !== claims.action_digest || String(approval.manifest_digest) !== claims.artefact_manifest_digest || Number(approval.policy_version) !== claims.policy_version) throw createError({ statusCode: 409, statusMessage: "Assertion is not bound to the sealed request" });
     if (new Date(approval.expires_at as Date) <= new Date(approval.database_now as Date)) {
       await sql`update approvals set state = 'EXPIRED', decided_at = now() where id = ${claims.request_id}`;
+      await activateApprovalCallback(sql, claims.request_id);
       await audit({ workspaceId: claims.workspace_id, actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: claims.request_id }, sql); return;
     }
     const eligible = await sql`
@@ -51,12 +54,14 @@ export default defineEventHandler(async (event) => {
     if (claims.decision === "APPROVED") {
       const receiptId = createId(); const now = new Date(approval.database_now as Date); const expires = new Date(approval.expires_at as Date);
       const exp = Math.min(Math.floor(expires.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900); const keys = await signingKeys();
-      const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: (approval.action as { audience: string }).audience, sub: claims.request_id, jti: receiptId,
+      const audience = actionAudience(Action.parse(approval.action)) ?? getConfig().receiptAudience;
+      const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: audience, sub: claims.request_id, jti: receiptId,
         iat: Math.floor(now.getTime() / 1000), exp, workspace_id: claims.workspace_id, agent_id: String(approval.agent_id), policy_version: claims.policy_version,
         action_digest: claims.action_digest, artefact_manifest_digest: claims.artefact_manifest_digest, approver_id: String(destination.mapped_user_id), enforcement: approval.enforcement,
       }, keys.privateJwk, keys.kid);
-      await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${(approval.action as { audience: string }).audience}, ${token}, to_timestamp(${exp}))`;
+      await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${audience}, ${token}, to_timestamp(${exp}))`;
     }
+    await activateApprovalCallback(sql, claims.request_id);
     await audit({ workspaceId: claims.workspace_id, actorType: "system", eventType: `approval.external_${claims.decision.toLowerCase()}`, subjectType: "approval", subjectId: claims.request_id, metadata: { destinationId: claims.destination_id, actor: claims.actor } }, sql);
   });
   return serializeApproval(claims.workspace_id, claims.request_id);

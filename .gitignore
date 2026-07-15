@@ -17,6 +17,7 @@ data/
 *.tsbuildinfo
 *.jwk
 .DS_Store
+dogfood-output/auth-state.json
 BUILD_PLAN.md
 .claude/worktrees/
 

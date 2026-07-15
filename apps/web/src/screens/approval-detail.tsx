@@ -1,5 +1,5 @@
-import type { Approval } from "@mayi/contracts";
-import type { MayIClient } from "@mayi/sdk";
+import { actionName, isToolCallAction, type Approval } from "@mayi/contracts";
+import { MayiHttpError, type MayiClient } from "@mayi/sdk";
 import { ArrowLeft, FileText } from "lucide-react";
 import { useState } from "react";
 import { StateBadge } from "~/components/state-badge";
@@ -32,7 +32,7 @@ export function ApprovalDetail({
 }: {
   item: Approval;
   email: string;
-  api: MayIClient;
+  api: MayiClient;
   onBack: () => void;
   onRefresh: () => Promise<void>;
 }) {
@@ -52,7 +52,7 @@ export function ApprovalDetail({
     } catch (cause) {
       // A high-risk action can demand a fresh authentication. Re-prompting inline and
       // retrying keeps the decision the user already made, rather than dropping it.
-      if (cause instanceof Error && cause.message.includes("Recent authentication")) {
+      if (cause instanceof MayiHttpError && cause.code === "step_up_required") {
         const password = window.prompt("Re-enter your password to decide this high-risk action");
         if (!password) return setBusy(false);
         try {
@@ -82,7 +82,7 @@ export function ApprovalDetail({
 
       <div className="mt-6 flex items-start justify-between gap-6">
         <h1 className="font-mono text-[clamp(1.4rem,3vw,1.9rem)] leading-tight font-medium tracking-[-0.01em]">
-          {item.action.kind}
+          {actionName(item.action)}
         </h1>
         <StateBadge state={item.state} className="mt-1" />
       </div>
@@ -96,15 +96,24 @@ export function ApprovalDetail({
         <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The exact action</h2>
         <dl className="mt-4 grid grid-cols-[minmax(90px,auto)_1fr] gap-x-6 divide-y divide-border border-y border-border">
           <Field label="kind">{item.action.kind}</Field>
-          <Field label="version">{item.action.version}</Field>
-          <Field label="audience">{item.action.audience}</Field>
-          {item.action.resourceVersion && <Field label="resource">{item.action.resourceVersion}</Field>}
+          {isToolCallAction(item.action) ? (
+            <>
+              <Field label="tool">{item.action.toolName}</Field>
+              <Field label="call ID">{item.action.callId}</Field>
+            </>
+          ) : (
+            <>
+              <Field label="version">{item.action.version}</Field>
+              <Field label="audience">{item.action.audience}</Field>
+              {item.action.resourceVersion && <Field label="resource">{item.action.resourceVersion}</Field>}
+            </>
+          )}
           <Field label="enforcement">{item.enforcement}</Field>
           {item.actionDigest && <Field label="digest">{item.actionDigest}</Field>}
         </dl>
 
         <pre className="mt-4 overflow-x-auto rounded-lg border border-border bg-muted p-4 font-mono text-[12px] leading-[1.75]">
-          {JSON.stringify(item.action.parameters, null, 2)}
+          {JSON.stringify(item.action.input, null, 2)}
         </pre>
       </section>
 

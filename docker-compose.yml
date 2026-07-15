@@ -24,6 +24,7 @@ services:
       RECEIPT_AUDIENCE: ${RECEIPT_AUDIENCE:-local-executor}
       RECEIPT_PRIVATE_JWK: ${RECEIPT_PRIVATE_JWK}
       RECEIPT_PUBLIC_JWK: ${RECEIPT_PUBLIC_JWK}
+      RECEIPT_PREVIOUS_PUBLIC_JWKS: ${RECEIPT_PREVIOUS_PUBLIC_JWKS:-[]}
       OBJECT_STORE: ${OBJECT_STORE:-filesystem}
       OBJECT_DIRECTORY: /var/lib/mayi/objects
       S3_BUCKET: ${S3_BUCKET:-}
@@ -39,6 +40,8 @@ services:
       CONSUMER_API_KEYS: ${CONSUMER_API_KEYS:-{}}
       EMAIL_API_URL: ${EMAIL_API_URL:-}
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      AUTH_TRUSTED_IP_HEADER: ${AUTH_TRUSTED_IP_HEADER:-x-forwarded-for}
+      OAUTH_REGISTRATION_TRUSTED_IP_HEADER: ${OAUTH_REGISTRATION_TRUSTED_IP_HEADER:-x-forwarded-for}
     ports: ["127.0.0.1:${APP_PORT:-3000}:3000"]
     volumes: ["artefacts:/var/lib/mayi/objects"]
     restart: unless-stopped

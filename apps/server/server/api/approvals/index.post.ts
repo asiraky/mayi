@@ -6,6 +6,8 @@ import { asHttpError, bodyAs, requireIdempotencyKey } from "../../utils/http";
 import { database } from "../../utils/runtime";
 import { serializeApproval } from "../../utils/serialize";
 
+const OPERATION = "approval.draft";
+
 export default defineEventHandler(async (event) => {
   const auth = await requireAgent(event, "approval:create");
   const input = await bodyAs(event, CreateApproval);
@@ -13,9 +15,11 @@ export default defineEventHandler(async (event) => {
   const key = requireIdempotencyKey(event);
   const payloadHash = await canonicalDigest(input);
   const approvalId = await database().sql.begin(async (sql) => {
+    const lockKey = `${auth.workspaceId}:${auth.agentId}:${OPERATION}:${key}`;
+    await sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
     const previous = await sql`
       select payload_hash, response from idempotency_keys
-      where workspace_id = ${auth.workspaceId} and credential_id = ${auth.agentId} and operation = 'approval.create' and key = ${key}
+      where workspace_id = ${auth.workspaceId} and credential_id = ${auth.agentId} and operation = ${OPERATION} and key = ${key}
       for update
     `;
     if (previous[0]) {
@@ -36,7 +40,7 @@ export default defineEventHandler(async (event) => {
     const storedId = String(approval!.id);
     await sql`
       insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at)
-      values (${auth.workspaceId}, ${auth.agentId}, 'approval.create', ${key}, ${payloadHash}, ${JSON.stringify({ id: storedId })}::jsonb, now() + interval '24 hours')
+      values (${auth.workspaceId}, ${auth.agentId}, ${OPERATION}, ${key}, ${payloadHash}, ${JSON.stringify({ id: storedId })}::jsonb, now() + interval '24 hours')
     `;
     await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.drafted", subjectType: "approval", subjectId: storedId }, sql);
     return storedId;

@@ -308,8 +308,8 @@ const faqs = [
   approver: "dana@northwind",
   deadline: "30m",
 });
-// blocks here. no polling, no webhook to run.
-// resolves approved, denied, or expired.`}</code></pre>
+// returns PENDING; a signed callback resumes parked work.
+// polling is reconciliation/fallback only.`}</code></pre>
       </div>
 
       <div class="rounded-xl border border-border bg-muted p-6">
