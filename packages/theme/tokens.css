@@ -1,0 +1,229 @@
+/*
+ * May I? — one palette, two schemes, three surfaces.
+ *
+ * Every colour the marketing site, the docs and the app draw with resolves from the
+ * variables below, so a recolour is an edit here rather than a sweep through markup.
+ * The structure follows the shadcn token contract (background/foreground/card/muted/
+ * primary/...) because the app is built from shadcn primitives and they read these
+ * names natively — which also means a drop-in shadcn theme still works by overriding
+ * this same set.
+ *
+ * Three tokens sit outside that contract because the contract has no slot for them:
+ *   --body          the prose grey, one step darker than --muted-foreground. Long-form
+ *                   text wants more weight than a label but less than a heading.
+ *   --primary-hover an explicit hover, because the direction flips between schemes:
+ *                   on paper the link DARKENS, on charcoal it BRIGHTENS. A blanket
+ *                   opacity shift can't express that.
+ *   --primary-ink   the brand blue when it is TEXT rather than a fill. Being legible as
+ *                   ink and being a strong fill are different jobs, and on charcoal one
+ *                   value cannot do both: #3d2fd6 carries #ecedeb at 6.94:1 as a fill,
+ *                   but as text on the page it is 2.25:1 — unreadable. On paper this is
+ *                   simply the brand blue and nothing changes. On charcoal it resolves
+ *                   to the plain foreground ink, trading the accent for legibility.
+ *   --device        the phone chassis in the marketing hero. It is a picture of a black
+ *                   object rather than a themed surface, so it does not invert — but it
+ *                   cannot stay #15181a either, or it would disappear into the charcoal
+ *                   ground. It lifts just far enough to hold an edge against the page.
+ *
+ * Light is the scheme signed off on the marketing page, transcribed hex-for-hex — the
+ * page renders identically to before it was tokenized. Dark is derived from it: the
+ * near-black ink (#15181a) becomes the ground, and the relationships invert. Note that
+ * --muted sits BELOW --background on paper (a code panel is a well) but ABOVE it on
+ * charcoal (a panel lifts toward the light), which is why the two schemes are written
+ * out in full rather than one being generated from the other.
+ *
+ * The neutrals are not pure grey. There is a faint green-cool cast through the whole
+ * ramp, so the indigo sits against a slightly living ground rather than a clinical one.
+ */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Paper. */
+  --background: #ecedeb;
+  --foreground: #15181a;
+
+  /* Lifts above the page — cards, popovers, anything that should float. */
+  --card: #f8f9f7;
+  --card-foreground: #15181a;
+  --popover: #f8f9f7;
+  --popover-foreground: #15181a;
+
+  /* Sinks below the page — code panels, receipts, wells. */
+  --muted: #e7e9e6;
+  --muted-foreground: #6b7472;
+  --body: #4a5250;
+
+  --secondary: #e7e9e6;
+  --secondary-foreground: #15181a;
+  --accent: #e7e9e6;
+  --accent-foreground: #15181a;
+
+  --primary: #3d2fd6;
+  --primary-foreground: #ecedeb;
+  --primary-hover: #2a1fb0;
+  /* On paper the blue is legible as ink (6.94:1 on the page), so this is just the
+     brand blue and the light scheme is unchanged. */
+  --primary-ink: #3d2fd6;
+  --primary-ink-hover: #2a1fb0;
+
+  --destructive: #b3341f;
+  --destructive-foreground: #ecedeb;
+
+  /* Alpha rather than a solid, so one line reads correctly over the page, over a
+     lifted card and over a sunken panel alike. */
+  --border: color-mix(in srgb, #15181a 12%, transparent);
+  --input: color-mix(in srgb, #15181a 18%, transparent);
+  --ring: #3d2fd6;
+
+  --sidebar: #e7e9e6;
+  --sidebar-foreground: #15181a;
+  --sidebar-primary: #3d2fd6;
+  --sidebar-primary-foreground: #ecedeb;
+  --sidebar-accent: color-mix(in srgb, #15181a 6%, transparent);
+  --sidebar-accent-foreground: #15181a;
+  --sidebar-border: color-mix(in srgb, #15181a 12%, transparent);
+  --sidebar-ring: #3d2fd6;
+
+  --device: #15181a;
+
+  --radius: 0.625rem;
+}
+
+.dark {
+  /* Charcoal. A hair below the ink (#15181a) the light scheme writes with, so that
+     ink-toned panels have somewhere to lift to. */
+  --background: #121514;
+  --foreground: #e8eae7;
+
+  --card: #191d1c;
+  --card-foreground: #e8eae7;
+  --popover: #191d1c;
+  --popover-foreground: #e8eae7;
+
+  /* Inverted against light: a panel now sits ABOVE the ground, not below it. */
+  --muted: #1c201f;
+  --muted-foreground: #8a938f;
+  --body: #b3bbb8;
+
+  --secondary: #1c201f;
+  --secondary-foreground: #e8eae7;
+  --accent: #1c201f;
+  --accent-foreground: #e8eae7;
+
+  /* The brand blue does not change between schemes — it is the same #3d2fd6 on
+     charcoal as on paper, by design. That holds because it is only ever a FILL here:
+     #ecedeb on it is 6.94:1, so buttons and the pending dot read as well as they do
+     in light. As TEXT on charcoal the same blue is 2.25:1, which is why ink resolves
+     through --primary-ink below rather than through this token. Do not reach for
+     text-primary in dark mode; reach for text-primary-ink. */
+  --primary: #3d2fd6;
+  --primary-foreground: #ecedeb;
+  /* The hover flips direction here: on paper it darkens to #2a1fb0, which on
+     charcoal would sink rather than respond, so this brightens by the same amount
+     of lightness (0.072) along the same hue. */
+  --primary-hover: #4c40fe;
+  /* Ink drops the accent for legibility: 15.18:1 on the page, 14.07:1 on a card,
+     against 2.25:1 for the blue. The brand still speaks through the fills next to
+     it — the breathing dot beside "May I?", the button behind "Approve" — so the
+     accent is not lost from the composition, only from the glyphs. */
+  --primary-ink: #e8eae7;
+  /* Ink cannot hover toward --primary-hover here the way it does on paper: that is
+     the blue, and it would drop the link to 2.4:1 at the exact moment it is being
+     used. Since ink is already at the top of the ramp, the response goes up to pure
+     white rather than down into colour. It is a quiet affordance — deliberately, on a
+     link whose underline was removed. */
+  --primary-ink-hover: #ffffff;
+
+  --destructive: #e5654a;
+  --destructive-foreground: #121514;
+
+  --border: color-mix(in srgb, #e8eae7 12%, transparent);
+  --input: color-mix(in srgb, #e8eae7 18%, transparent);
+  --ring: #3d2fd6;
+
+  --sidebar: #1c201f;
+  --sidebar-foreground: #e8eae7;
+  --sidebar-primary: #3d2fd6;
+  --sidebar-primary-foreground: #ecedeb;
+  --sidebar-accent: color-mix(in srgb, #e8eae7 8%, transparent);
+  --sidebar-accent-foreground: #e8eae7;
+  --sidebar-border: color-mix(in srgb, #e8eae7 12%, transparent);
+  --sidebar-ring: #3d2fd6;
+
+  --device: #3a403e;
+}
+
+/* `inline` so the utilities resolve the variable at use time — that is what lets a
+   single `.dark` class on <html> reskin the tree without re-emitting any utility. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-body: var(--body);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-ink: var(--primary-ink);
+  --color-primary-ink-hover: var(--primary-ink-hover);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-device: var(--device);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* The pending dot is the one piece of motion the brand owns — it marks a request
+     that is being held, on the hero and on a PENDING row alike. Shared so the two
+     surfaces breathe at the same rate. */
+  --animate-breathe: breathe 3.4s ease-in-out infinite;
+  --animate-ring: ring 2.6s ease-out infinite;
+}
+
+/* A slow pulse, not a blink: the request is waiting, not alarming. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.86);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The halo that expands off the pending dot and fades. */
+@keyframes ring {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}

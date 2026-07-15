@@ -1,0 +1,11 @@
+{
+  "name": "@mayi/theme",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./theme.js": "./theme.js"
+  },
+  "files": ["tokens.css", "theme.js"]
+}
