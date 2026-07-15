@@ -101,26 +101,29 @@ export default defineEventHandler(async (event) => {
   for (; processed < 25; processed++) {
     const job = await claimNextJob(); if (!job) break;
     try {
+      let completed = true;
       if (job.type === CALLBACK_JOB_TYPE) {
         await sendApprovalCallback(job);
-        await markCallbackDelivered(job);
+        completed = await markCallbackDelivered(job);
       } else if (job.type === "push.approval_pending") await push(job);
       else if (job.type === "webhook.approval_pending") await webhook(job);
       else if (job.type === "email.approval_pending") await email(job);
       else throw new Error("Unknown job type");
       if (job.type !== CALLBACK_JOB_TYPE) {
-        await database().sql`update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null, last_error = null where id = ${job.id}`;
+        await database().sql`update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null, lease_token = null, last_error = null where id = ${job.id}`;
       }
-      await audit({ workspaceId: job.workspace_id, actorType: "system", eventType: "job.succeeded", subjectType: "job", subjectId: job.id, metadata: { type: job.type } });
+      if (completed) {
+        await audit({ workspaceId: job.workspace_id, actorType: "system", eventType: "job.succeeded", subjectType: "job", subjectId: job.id, metadata: { type: job.type } });
+      }
     } catch (error) {
       if (job.type === CALLBACK_JOB_TYPE) {
         await markCallbackFailed(job, error);
       } else {
         const message = error instanceof Error ? error.message.slice(0, 500) : "Job failed";
         if (job.attempts >= 10) {
-          await database().sql`update jobs set state = 'DEAD_LETTER', locked_at = null, completed_at = now(), last_error = ${message} where id = ${job.id}`;
+          await database().sql`update jobs set state = 'DEAD_LETTER', locked_at = null, lease_token = null, completed_at = now(), last_error = ${message} where id = ${job.id}`;
         } else {
-          await database().sql`update jobs set state = 'FAILED', locked_at = null, last_error = ${message}, available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5)) where id = ${job.id}`;
+          await database().sql`update jobs set state = 'FAILED', locked_at = null, lease_token = null, last_error = ${message}, available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5)) where id = ${job.id}`;
         }
       }
     }

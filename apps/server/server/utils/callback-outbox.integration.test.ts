@@ -7,6 +7,7 @@ import {
   CALLBACK_JOB_TYPE,
   CallbackDeliveryError,
   claimNextJob,
+  markCallbackDelivered,
   markCallbackFailed,
   replayDeadLetterCallback,
 } from "./callback-outbox";
@@ -190,6 +191,49 @@ describe.sequential("terminal callback outbox transactions", () => {
     await database().sql`update approval_callbacks set lease_expires_at = now() - interval '1 minute' where id = ${callbackId}`;
     const reclaimed = await claimNextJob(database().sql, { jobId: first!.id });
     expect(reclaimed).toMatchObject({ id: first!.id, attempts: 2 });
+  });
+
+  it("fences late success and failure from a reclaimed lease", async () => {
+    const { approvalId, callbackId } = await createPending();
+    expect((await decide(approvalId, "DENIED")).status).toBe(200);
+    const [queued] = await database().sql`select id from jobs where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}`;
+    const first = await claimNextJob(database().sql, { jobId: String(queued!.id) });
+    await database().sql`update jobs set locked_at = now() - interval '6 minutes' where id = ${first!.id}`;
+    await database().sql`update approval_callbacks set lease_expires_at = now() - interval '1 minute' where id = ${callbackId}`;
+    const second = await claimNextJob(database().sql, { jobId: first!.id });
+    expect(second).toMatchObject({ attempts: 2 });
+    expect(second!.lease_token).not.toBe(first!.lease_token);
+
+    await expect(markCallbackDelivered(first!)).resolves.toBe(false);
+    await expect(markCallbackFailed(first!, new CallbackDeliveryError("http_503", true))).resolves.toBe("stale");
+    const [runningJob] = await database().sql`select state, attempts, lease_token from jobs where id = ${first!.id}`;
+    const [runningCallback] = await database().sql`select delivery_status, attempts from approval_callbacks where id = ${callbackId}`;
+    expect(runningJob).toMatchObject({ state: "RUNNING", attempts: 2, lease_token: second!.lease_token });
+    expect(runningCallback).toMatchObject({ delivery_status: "RUNNING", attempts: 2 });
+
+    await expect(markCallbackDelivered(second!)).resolves.toBe(true);
+    const [deliveredJob] = await database().sql`select state, lease_token from jobs where id = ${first!.id}`;
+    const [deliveredCallback] = await database().sql`select delivery_status from approval_callbacks where id = ${callbackId}`;
+    expect(deliveredJob).toMatchObject({ state: "SUCCEEDED", lease_token: null });
+    expect(deliveredCallback!.delivery_status).toBe("DELIVERED");
+  });
+
+  it("fences an old same-attempt worker after dead-letter replay", async () => {
+    const { approvalId, callbackId } = await createPending();
+    expect((await decide(approvalId, "DENIED")).status).toBe(200);
+    const [queued] = await database().sql`select id from jobs where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}`;
+    const old = await claimNextJob(database().sql, { jobId: String(queued!.id) });
+    await expect(markCallbackFailed(old!, new CallbackDeliveryError("http_400", false))).resolves.toBe("dead_letter");
+    await replayDeadLetterCallback(callbackId);
+    const replayed = await claimNextJob(database().sql, { jobId: old!.id });
+    expect(replayed).toMatchObject({ attempts: 1 });
+    expect(replayed!.lease_token).not.toBe(old!.lease_token);
+
+    await expect(markCallbackDelivered(old!)).resolves.toBe(false);
+    await expect(markCallbackFailed(old!, new CallbackDeliveryError("http_503", true))).resolves.toBe("stale");
+    const [job] = await database().sql`select state, attempts, lease_token from jobs where id = ${old!.id}`;
+    expect(job).toMatchObject({ state: "RUNNING", attempts: 1, lease_token: replayed!.lease_token });
+    await expect(markCallbackDelivered(replayed!)).resolves.toBe(true);
   });
 
   it("dead-letters exhausted delivery and manual replay keeps the stable event ID", async () => {

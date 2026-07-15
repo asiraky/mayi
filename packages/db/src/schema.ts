@@ -241,6 +241,7 @@ export const jobs = pgTable("jobs", {
   attempts: integer("attempts").default(0).notNull(),
   availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
   lockedAt: timestamp("locked_at", { withTimezone: true }),
+  leaseToken: identifier("lease_token"),
   lastError: text("last_error"),
   createdAt,
   completedAt: timestamp("completed_at", { withTimezone: true }),

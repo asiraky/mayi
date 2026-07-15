@@ -1,6 +1,8 @@
 import { ApprovalResolvedEvent, canonicalize, createId, type ApprovalResolvedEvent as ApprovalResolvedEventType } from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
-import type { Sql } from "postgres";
+import type { Sql, TransactionSql } from "postgres";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import type { RequestOptions } from "node:https";
 import { PublicUrlValidationError, validatePublicHttpsUrl, type PublicUrlResolver, type ValidatedPublicUrl } from "./public-url";
 import { signWebhook } from "./forwarding";
 import { database } from "./runtime";
@@ -21,6 +23,7 @@ export type OutboxJob = {
   type: string;
   payload: { approvalId?: string; destinationId?: string; deliveryId?: string; callbackId?: string };
   attempts: number;
+  lease_token: string;
 };
 
 type CallbackRow = {
@@ -117,7 +120,7 @@ export async function claimNextJob(
     `;
     await tx`
       update jobs set state = 'DEAD_LETTER', locked_at = null,
-        completed_at = now(), last_error = 'lease_exhausted'
+        lease_token = null, completed_at = now(), last_error = 'lease_exhausted'
       where state = 'RUNNING' and attempts >= ${CALLBACK_MAX_ATTEMPTS}
         and coalesce(locked_at, '-infinity'::timestamptz) <= now() - make_interval(secs => ${CALLBACK_LEASE_SECONDS})
     `;
@@ -131,10 +134,12 @@ export async function claimNextJob(
       order by available_at, created_at for update skip locked limit 1
     `;
     if (!rows[0]) return undefined;
+    const leaseToken = createId();
     const claimed = await tx`
-      update jobs set state = 'RUNNING', locked_at = now(), attempts = attempts + 1
+      update jobs set state = 'RUNNING', locked_at = now(), attempts = attempts + 1,
+        lease_token = ${leaseToken}
       where id = ${rows[0].id}
-      returning id, workspace_id, type, payload, attempts
+      returning id, workspace_id, type, payload, attempts, lease_token
     `;
     const job = claimed[0] as OutboxJob;
     if (job.type === CALLBACK_JOB_TYPE) {
@@ -242,62 +247,97 @@ async function edgeTransport(target: ValidatedPublicUrl, body: string, signature
   }
 }
 
-async function nodePinnedTransport(target: ValidatedPublicUrl, body: string, signature: string): Promise<CallbackHttpResponse> {
-  const { request } = await import("node:https");
-  const { isIP } = await import("node:net");
+export type NodeHttpsRequest = (options: RequestOptions, callback: (response: IncomingMessage) => void) => ClientRequest;
+
+export type NodeCallbackTransportOptions = {
+  request?: NodeHttpsRequest;
+  isIP?: (value: string) => number;
+  connectTimeoutMs?: number;
+  responseTimeoutMs?: number;
+  totalTimeoutMs?: number;
+};
+
+export async function deliverCallbackHttpNode(
+  target: ValidatedPublicUrl,
+  body: string,
+  signature: string,
+  options: NodeCallbackTransportOptions = {},
+): Promise<CallbackHttpResponse> {
+  const request = options.request ?? (await import("node:https")).request as NodeHttpsRequest;
+  const isIP = options.isIP ?? (await import("node:net")).isIP;
+  const connectTimeoutMs = options.connectTimeoutMs ?? CALLBACK_CONNECT_TIMEOUT_MS;
+  const responseTimeoutMs = options.responseTimeoutMs ?? CALLBACK_RESPONSE_TIMEOUT_MS;
+  const totalTimeoutMs = options.totalTimeoutMs ?? CALLBACK_TOTAL_TIMEOUT_MS;
+  const originalHostname = target.url.hostname.replace(/^\[|\]$/g, "");
   return new Promise((resolve, reject) => {
     let settled = false;
+    let req: ClientRequest | undefined;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
+    const connected = () => {
+      if (connectTimer) clearTimeout(connectTimer);
+      connectTimer = undefined;
+    };
     const finish = (error?: CallbackDeliveryError, response?: CallbackHttpResponse) => {
       if (settled) return;
       settled = true;
+      connected();
       clearTimeout(totalTimer);
       if (error) reject(error); else resolve(response!);
     };
     const totalTimer = setTimeout(() => {
-      req.destroy();
       finish(new CallbackDeliveryError("timeout", true));
-    }, CALLBACK_TOTAL_TIMEOUT_MS);
-    const req = request({
-      protocol: "https:",
-      hostname: target.pinnedAddress,
-      port: 443,
-      method: "POST",
-      path: `${target.url.pathname}${target.url.search}`,
-      servername: isIP(target.url.hostname) ? undefined : target.url.hostname,
-      headers: {
-        host: target.url.host,
-        "content-type": "application/json",
-        "content-length": Buffer.byteLength(body),
-        "x-mayi-signature": signature,
-        "user-agent": "MayI-Callback/1",
-      },
-    }, (response) => {
-      response.setTimeout(CALLBACK_RESPONSE_TIMEOUT_MS, () => {
-        response.destroy();
-        finish(new CallbackDeliveryError("timeout", true));
-      });
-      let bytes = 0;
-      response.on("data", (chunk: Buffer) => {
-        bytes += chunk.byteLength;
-        if (bytes > CALLBACK_MAX_RESPONSE_BYTES) {
+      req?.destroy();
+    }, totalTimeoutMs);
+    connectTimer = setTimeout(() => {
+      finish(new CallbackDeliveryError("connect_timeout", true));
+      req?.destroy();
+    }, connectTimeoutMs);
+    try {
+      req = request({
+        protocol: "https:",
+        hostname: target.pinnedAddress,
+        port: target.url.port ? Number(target.url.port) : 443,
+        method: "POST",
+        path: `${target.url.pathname}${target.url.search}`,
+        servername: isIP(originalHostname) ? undefined : originalHostname,
+        headers: {
+          host: target.url.host,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+          "x-mayi-signature": signature,
+          "user-agent": "MayI-Callback/1",
+        },
+      }, (response) => {
+        response.setTimeout(responseTimeoutMs, () => {
           response.destroy();
-          finish(new CallbackDeliveryError("response_too_large", false));
-        }
+          finish(new CallbackDeliveryError("timeout", true));
+        });
+        let bytes = 0;
+        response.on("data", (chunk: Buffer) => {
+          bytes += chunk.byteLength;
+          if (bytes > CALLBACK_MAX_RESPONSE_BYTES) {
+            response.destroy();
+            finish(new CallbackDeliveryError("response_too_large", false));
+          }
+        });
+        response.on("end", () => finish(undefined, { status: response.statusCode ?? 0, bytes }));
+        response.on("error", () => finish(new CallbackDeliveryError("network_error", true)));
       });
-      response.on("end", () => finish(undefined, { status: response.statusCode ?? 0, bytes }));
-      response.on("error", () => finish(new CallbackDeliveryError("network_error", true)));
-    });
-    req.setTimeout(CALLBACK_CONNECT_TIMEOUT_MS, () => {
-      req.destroy();
-      finish(new CallbackDeliveryError("timeout", true));
-    });
-    req.on("error", () => finish(new CallbackDeliveryError("network_error", true)));
-    req.end(body);
+      req.once("socket", (socket) => {
+        const tlsSocket = socket as typeof socket & { encrypted?: boolean; secureConnecting?: boolean };
+        if (tlsSocket.encrypted && !tlsSocket.connecting && tlsSocket.secureConnecting === false) connected();
+        else tlsSocket.once("secureConnect", connected);
+      });
+      req.on("error", () => finish(new CallbackDeliveryError("network_error", true)));
+      req.end(body);
+    } catch {
+      finish(new CallbackDeliveryError("network_error", true));
+    }
   });
 }
 
 export const deliverCallbackHttp: CallbackTransport = async (target, body, signature) =>
-  nodeRuntime() ? nodePinnedTransport(target, body, signature) : edgeTransport(target, body, signature);
+  nodeRuntime() ? deliverCallbackHttpNode(target, body, signature) : edgeTransport(target, body, signature);
 
 function classifyStatus(status: number): void {
   if (status >= 200 && status < 300) return;
@@ -338,17 +378,38 @@ export function callbackRetryDelaySeconds(attempt: number, random = Math.random)
   return CALLBACK_RETRY_BASE_SECONDS * 2 ** (attempt - 1) * (0.5 + random());
 }
 
-export async function markCallbackDelivered(job: OutboxJob, sql: Sql = database().sql): Promise<void> {
-  await sql.begin(async (tx) => {
+async function lockCurrentCallbackLease(tx: TransactionSql, job: OutboxJob): Promise<boolean> {
+  const currentJob = await tx`
+    select id from jobs where id = ${job.id} and state = 'RUNNING'
+      and attempts = ${job.attempts} and lease_token = ${job.lease_token}
+    for update
+  `;
+  if (!currentJob[0]) return false;
+  const currentCallback = await tx`
+    select id from approval_callbacks where id = ${job.payload.callbackId!}
+      and workspace_id = ${job.workspace_id} and delivery_status = 'RUNNING'
+      and attempts = ${job.attempts}
+    for update
+  `;
+  return Boolean(currentCallback[0]);
+}
+
+export async function markCallbackDelivered(job: OutboxJob, sql: Sql = database().sql): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    if (!await lockCurrentCallbackLease(tx, job)) return false;
     await tx`
       update approval_callbacks set delivery_status = 'DELIVERED', completed_at = now(),
         dead_lettered_at = null, lease_expires_at = null, next_attempt_at = null, last_error = null
       where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
+        and delivery_status = 'RUNNING' and attempts = ${job.attempts}
     `;
     await tx`
-      update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null, last_error = null
-      where id = ${job.id}
+      update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null,
+        lease_token = null, last_error = null
+      where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+        and lease_token = ${job.lease_token}
     `;
+    return true;
   });
 }
 
@@ -356,14 +417,15 @@ export async function markCallbackFailed(
   job: OutboxJob,
   error: unknown,
   dependencies: CallbackMutationDependencies = {},
-): Promise<"retry" | "dead_letter"> {
+): Promise<"retry" | "dead_letter" | "stale"> {
   const sql = dependencies.sql ?? database().sql;
   const failure = error instanceof CallbackDeliveryError
     ? error
     : new CallbackDeliveryError("delivery_error", true);
   const retry = failure.retryable && job.attempts < CALLBACK_MAX_ATTEMPTS;
   const delay = retry ? callbackRetryDelaySeconds(job.attempts, dependencies.random) : undefined;
-  await sql.begin(async (tx) => {
+  return sql.begin(async (tx) => {
+    if (!await lockCurrentCallbackLease(tx, job)) return "stale" as const;
     if (retry) {
       await tx`
         update approval_callbacks set delivery_status = 'FAILED', lease_expires_at = null,
@@ -371,9 +433,10 @@ export async function markCallbackFailed(
         where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
       `;
       await tx`
-        update jobs set state = 'FAILED', locked_at = null, last_error = ${failure.code},
+        update jobs set state = 'FAILED', locked_at = null, lease_token = null, last_error = ${failure.code},
           available_at = now() + make_interval(secs => ${delay!})
-        where id = ${job.id}
+        where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+          and lease_token = ${job.lease_token}
       `;
     } else {
       await tx`
@@ -382,13 +445,14 @@ export async function markCallbackFailed(
         where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
       `;
       await tx`
-        update jobs set state = 'DEAD_LETTER', locked_at = null, last_error = ${failure.code},
+        update jobs set state = 'DEAD_LETTER', locked_at = null, lease_token = null, last_error = ${failure.code},
           completed_at = now()
-        where id = ${job.id}
+        where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+          and lease_token = ${job.lease_token}
       `;
     }
+    return retry ? "retry" as const : "dead_letter" as const;
   });
-  return retry ? "retry" : "dead_letter";
 }
 
 export async function replayDeadLetterCallback(
@@ -405,7 +469,7 @@ export async function replayDeadLetterCallback(
     `;
     if (!rows[0]) throw new CallbackDeliveryError("callback_not_dead_lettered", false);
     const jobs = await tx`
-      update jobs set state = 'READY', attempts = 0, available_at = now(), locked_at = null,
+      update jobs set state = 'READY', attempts = 0, available_at = now(), locked_at = null, lease_token = null,
         last_error = null, completed_at = null
       where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}
       returning id

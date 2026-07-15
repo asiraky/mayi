@@ -1,6 +1,10 @@
 import { canonicalize, createId } from "@mayi/contracts";
 import { createWebhookVerifier } from "@mayi/sdk/webhook-verifier";
 import { generateKeyPair, exportJWK } from "jose";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { ClientRequest, IncomingMessage } from "node:http";
+import type { RequestOptions } from "node:https";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import jwksHandler from "../routes/.well-known/jwks.json.get";
 import {
@@ -9,11 +13,14 @@ import {
   activateApprovalCallback,
   callbackRetryDelaySeconds,
   claimNextJob,
+  deliverCallbackHttpNode,
   markCallbackDelivered,
   markCallbackFailed,
   sendApprovalCallback,
   type OutboxJob,
+  type NodeHttpsRequest,
 } from "./callback-outbox";
+import type { ValidatedPublicUrl } from "./public-url";
 import { signWebhook } from "./forwarding";
 import { database } from "./runtime";
 
@@ -63,6 +70,43 @@ async function claim(jobId: string): Promise<OutboxJob> {
   return job;
 }
 
+function target(value = "https://callback.example/resolve", pinnedAddress = "8.8.8.8"): ValidatedPublicUrl {
+  return { url: new URL(value), addresses: [pinnedAddress], pinnedAddress, redirect: "error" };
+}
+
+function requestResponse(
+  status: number,
+  inspect?: (options: RequestOptions) => void,
+  headers: Record<string, string> = {},
+): { request: NodeHttpsRequest; calls: RequestOptions[] } {
+  const calls: RequestOptions[] = [];
+  const request: NodeHttpsRequest = (options, callback) => {
+    calls.push(options);
+    inspect?.(options);
+    const req = new EventEmitter() as ClientRequest;
+    req.destroy = vi.fn(() => req);
+    req.end = vi.fn(() => {
+      const socket = Object.assign(new EventEmitter(), {
+        encrypted: true, connecting: true, secureConnecting: true,
+      });
+      req.emit("socket", socket);
+      socket.connecting = false;
+      socket.secureConnecting = false;
+      socket.emit("secureConnect");
+      const stream = new PassThrough();
+      const response = stream as unknown as IncomingMessage;
+      response.statusCode = status;
+      response.headers = headers;
+      response.setTimeout = vi.fn(() => response);
+      callback(response);
+      stream.end();
+      return req;
+    }) as ClientRequest["end"];
+    return req;
+  };
+  return { request, calls };
+}
+
 beforeAll(async () => {
   await database().sql`
     insert into users (id, email, display_name, password_hash)
@@ -92,6 +136,64 @@ describe.sequential("terminal callback delivery", () => {
     expect(callbackRetryDelaySeconds(1, () => 0)).toBe(2.5);
     expect(callbackRetryDelaySeconds(1, () => 1)).toBe(7.5);
     expect(callbackRetryDelaySeconds(9, () => 1)).toBe(1_920);
+  });
+
+  it("enforces the pre-connect timeout in the production Node transport", async () => {
+    vi.useFakeTimers();
+    try {
+      const request: NodeHttpsRequest = () => {
+        const req = new EventEmitter() as ClientRequest;
+        req.destroy = vi.fn(() => req);
+        req.end = vi.fn(() => req) as ClientRequest["end"];
+        return req;
+      };
+      const delivery = deliverCallbackHttpNode(target(), "{}", "signature", {
+        request, isIP: () => 0, connectTimeoutMs: 25, totalTimeoutMs: 100,
+      });
+      const assertion = expect(delivery).rejects.toMatchObject({ code: "connect_timeout", retryable: true });
+      await vi.advanceTimersByTimeAsync(25);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("connects to the pinned address while preserving Host and normalized TLS SNI", async () => {
+    const hostname = requestResponse(204);
+    await expect(deliverCallbackHttpNode(target(), "{}", "signature", {
+      request: hostname.request, isIP: () => 0,
+    })).resolves.toMatchObject({ status: 204 });
+    expect(hostname.calls).toHaveLength(1);
+    expect(hostname.calls[0]).toMatchObject({
+      hostname: "8.8.8.8", servername: "callback.example",
+      headers: { host: "callback.example" },
+    });
+
+    const ipv6 = requestResponse(204);
+    const ipv6Address = "2606:4700:4700::1111";
+    await expect(deliverCallbackHttpNode(target(`https://[${ipv6Address}]/resolve`, ipv6Address), "{}", "signature", {
+      request: ipv6.request, isIP: (value) => value === ipv6Address ? 6 : 0,
+    })).resolves.toMatchObject({ status: 204 });
+    expect(ipv6.calls[0]).toMatchObject({
+      hostname: ipv6Address, servername: undefined,
+      headers: { host: `[${ipv6Address}]` },
+    });
+  });
+
+  it("refuses a real Node transport redirect without requesting its Location", async () => {
+    const { callbackId, jobId } = await createReadyCallback();
+    const job = await claim(jobId);
+    const redirect = requestResponse(302, undefined, { location: "https://127.0.0.1/internal" });
+    await expect(sendApprovalCallback(job, {
+      resolve: async () => ["8.8.8.8"],
+      transport: (validated, body, signature) => deliverCallbackHttpNode(validated, body, signature, {
+        request: redirect.request, isIP: () => 0,
+      }),
+    })).rejects.toMatchObject({ code: "redirect_refused", retryable: false });
+    expect(redirect.calls).toHaveLength(1);
+    expect(redirect.calls[0]).toMatchObject({ hostname: "8.8.8.8", path: "/resolve" });
+    const [callback] = await database().sql`select delivery_status from approval_callbacks where id = ${callbackId}`;
+    expect(callback!.delivery_status).toBe("RUNNING");
   });
 
   it("retries transient 5xx with jitter and the same stable event ID", async () => {
