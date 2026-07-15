@@ -44,6 +44,8 @@ jobs:
               - 'wrangler.toml'
   verify:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://mayi:mayi@localhost:5432/mayi
     services:
       postgres:
         image: postgres:17-alpine
@@ -58,6 +60,7 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
@@ -65,8 +68,6 @@ jobs:
       - run: pnpm --filter @mayi/server build
       - run: pnpm --filter @mayi/server build:vercel
       - run: pnpm --filter @mayi/server build:cloudflare
-      - run: pnpm db:migrate
-        env: { DATABASE_URL: "postgres://mayi:mayi@localhost:5432/mayi" }
   deploy-site:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_SITE_DEPLOY_ENABLED == 'true' && needs.changes.outputs.site == 'true'
     needs: [changes, verify]
