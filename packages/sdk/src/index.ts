@@ -40,6 +40,8 @@ export interface MayiClientOptions {
   origin: string;
   getAccessToken?: GetAccessToken;
   fetch?: MayiFetch;
+  /** Allows cleartext HTTP only for exact loopback hosts during local development. */
+  dangerouslyAllowInsecureHttpForDevelopment?: boolean;
 }
 
 export interface ApprovalRequestOptions {
@@ -145,7 +147,12 @@ export class MayiResponseError extends Error {
 
 type AuthMode = "cookie" | "optional-access-token" | "required-access-token";
 
-function normalizeOrigin(origin: string): string {
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function normalizeOrigin(origin: string, allowInsecureLoopback: boolean): string {
   try {
     const url = new URL(origin);
     if (
@@ -156,6 +163,9 @@ function normalizeOrigin(origin: string): string {
       || url.search
       || url.hash
     ) throw new Error();
+    if (url.protocol === "http:" && !(allowInsecureLoopback && isLoopbackHostname(url.hostname))) {
+      throw new Error();
+    }
     return url.origin;
   } catch {
     throw new MayiConfigurationError();
@@ -203,7 +213,10 @@ export class MayiClient {
 
   constructor(options: MayiClientOptions) {
     if (!options || typeof options !== "object") throw new MayiConfigurationError();
-    this.origin = normalizeOrigin(options.origin);
+    this.origin = normalizeOrigin(
+      options.origin,
+      options.dangerouslyAllowInsecureHttpForDevelopment === true,
+    );
     this.getAccessToken = options.getAccessToken;
     this.fetch = options.fetch ?? defaultFetch();
     if (typeof this.fetch !== "function") throw new MayiConfigurationError("A valid fetch implementation is required");

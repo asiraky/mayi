@@ -5,7 +5,8 @@ import { authorizeApprovalCallback } from "../../utils/approval-callback";
 import { audit, requireAgent } from "../../utils/auth";
 import { asHttpError, bodyAs, requireIdempotencyKey } from "../../utils/http";
 import { queuePendingNotifications } from "../../utils/pending-notifications";
-import { database } from "../../utils/runtime";
+import { storedArtefactMatches, type ArtefactMediaType } from "../../utils/artefacts";
+import { database, objects } from "../../utils/runtime";
 import { serializeApproval } from "../../utils/serialize";
 
 const OPERATION = "approval.request";
@@ -95,7 +96,7 @@ export default defineEventHandler(async (event) => {
 
     const artefactIds = input.artefactIds ?? [];
     const files = artefactIds.length ? await sql`
-      select id, filename, media_type, size, sha256, upload_ordinal
+      select id, object_key, filename, media_type, size, sha256, upload_ordinal
       from artefacts
       where workspace_id = ${auth.workspaceId}
         and agent_id = ${auth.agentId}
@@ -108,6 +109,17 @@ export default defineEventHandler(async (event) => {
     ` : [];
     if (files.length !== artefactIds.length) {
       throw createError({ statusCode: 422, statusMessage: "Every artefact must be ready and staged for this request" });
+    }
+    const store = objects();
+    for (const file of files) {
+      if (!await storedArtefactMatches(store, {
+        objectKey: String(file.object_key),
+        mediaType: String(file.media_type) as ArtefactMediaType,
+        size: Number(file.size),
+        sha256: String(file.sha256),
+      })) {
+        throw createError({ statusCode: 409, statusMessage: "A staged artefact is unavailable or does not match its immutable metadata" });
+      }
     }
     const byId = new Map(files.map((file) => [String(file.id), file]));
     const manifest = artefactIds.map((artefactId, ordinal) => {

@@ -69,6 +69,16 @@ export const oauthClients = pgTable("oauth_clients", {
   check("oauth_clients_approval_callback_uri_count_check", sql`cardinality(${t.approvalCallbackUris}) <= 10`),
 ]);
 
+export const oauthRegistrationAttempts = pgTable("oauth_registration_attempts", {
+  identityHash: text("identity_hash").primaryKey(),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).defaultNow().notNull(),
+  attempts: integer("attempts").default(1).notNull(),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  index("oauth_registration_attempts_last_attempt_idx").on(t.lastAttemptAt),
+  check("oauth_registration_attempts_count_check", sql`${t.attempts} BETWEEN 1 AND 31`),
+]);
+
 export const agents = pgTable("agents", {
   id: identifier("id").primaryKey(),
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
@@ -182,12 +192,13 @@ export const artefacts = pgTable("artefacts", {
     .on(t.workspaceId, t.agentId, t.requestKey, t.uploadOrdinal)
     .where(sql`${t.requestKey} IS NOT NULL`),
   index("artefacts_staged_expiry_idx").on(t.expiresAt).where(sql`${t.approvalId} IS NULL AND ${t.expiresAt} IS NOT NULL`),
-  check("artefacts_state_check", sql`${t.state} IN ('UPLOADING', 'READY')`),
+  check("artefacts_state_check", sql`${t.state} IN ('UPLOADING', 'READY', 'DELETING')`),
   check("artefacts_upload_ordinal_check", sql`${t.uploadOrdinal} IS NULL OR ${t.uploadOrdinal} BETWEEN 0 AND 19`),
   check("artefacts_staging_check", sql`
     (${t.requestKey} IS NULL AND ${t.approvalId} IS NOT NULL)
     OR
-    (${t.requestKey} IS NOT NULL AND ${t.agentId} IS NOT NULL AND ${t.uploadOrdinal} IS NOT NULL AND ${t.uploadPayloadHash} IS NOT NULL AND ${t.expiresAt} IS NOT NULL)
+    (${t.requestKey} IS NOT NULL AND ${t.agentId} IS NOT NULL AND ${t.uploadOrdinal} IS NOT NULL AND ${t.uploadPayloadHash} IS NOT NULL AND ${t.expiresAt} IS NOT NULL
+      AND (${t.state} <> 'DELETING' OR ${t.approvalId} IS NULL))
   `),
 ]);
 

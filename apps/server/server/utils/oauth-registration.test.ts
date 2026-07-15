@@ -1,8 +1,13 @@
+import type { H3Event } from "h3";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertRegistrationAttemptAllowed,
   assertRegistrationRateAllowed,
   OAUTH_REGISTRATION_LIMITS,
   parseAndValidateRegistration,
+  normalizeRegistrationClientAddress,
+  registrationClientAddress,
+  RegistrationValidationGate,
   validateRedirectUri,
 } from "../api/oauth/register.post";
 import type { PublicUrlResolver } from "./public-url";
@@ -90,5 +95,85 @@ describe("OAuth dynamic client registration validation", () => {
   it("enforces ten successful registrations per source IP per rolling hour", () => {
     expect(() => assertRegistrationRateAllowed(9)).not.toThrow();
     expect(() => assertRegistrationRateAllowed(10)).toThrow(/rate limit/);
+  });
+
+  it("rejects attempts beyond the shared hourly budget", () => {
+    expect(() => assertRegistrationAttemptAllowed(OAUTH_REGISTRATION_LIMITS.attemptsPerIpPerHour)).not.toThrow();
+    expect(() => assertRegistrationAttemptAllowed(OAUTH_REGISTRATION_LIMITS.attemptsPerIpPerHour + 1))
+      .toThrow(/attempt limit/);
+  });
+
+  it.each([
+    "198.51.100.20, 10.0.0.2",
+    "198.51.100.20 10.0.0.2",
+    "attacker-controlled",
+    "999.999.999.999",
+    "::::",
+    "",
+  ])("rejects ambiguous or non-address trusted proxy identity: %j", (value) => {
+    expect(() => normalizeRegistrationClientAddress(value)).toThrow(/source IP/);
+  });
+
+  it.each(["203.0.113.9", "2001:db8::9", "::ffff:127.0.0.1"])(
+    "accepts a single direct or trusted address: %s",
+    (value) => expect(normalizeRegistrationClientAddress(value)).toBe(value),
+  );
+
+  it("ignores a caller-supplied forwarded header unless a trusted source is configured", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: { "x-forwarded-for": "203.0.113.99" },
+          socket: { remoteAddress: "198.51.100.7" },
+        },
+      },
+    } as unknown as H3Event;
+    expect(registrationClientAddress(event, {})).toBe("198.51.100.7");
+  });
+
+  it("uses only a configured single-address trusted header", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: {
+            "x-mayi-client-ip": "203.0.113.8",
+            "x-forwarded-for": "192.0.2.1, 10.0.0.1",
+          },
+          socket: { remoteAddress: "10.0.0.2" },
+        },
+      },
+    } as unknown as H3Event;
+    expect(registrationClientAddress(event, {
+      OAUTH_REGISTRATION_TRUSTED_IP_HEADER: "x-mayi-client-ip",
+    })).toBe("203.0.113.8");
+  });
+
+  it("selects Vercel's overwritten client header only in the Vercel runtime", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: { "x-vercel-forwarded-for": "203.0.113.10" },
+          socket: { remoteAddress: "10.0.0.2" },
+        },
+      },
+    } as unknown as H3Event;
+    expect(registrationClientAddress(event, { VERCEL: "1" })).toBe("203.0.113.10");
+  });
+
+  it("bounds concurrent callback DNS validation work", async () => {
+    const gate = new RegistrationValidationGate(2);
+    let active = 0;
+    let maximumActive = 0;
+    const tasks = Array.from({ length: 5 }, () => gate.run(async () => {
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+    }));
+    await Promise.all(tasks);
+    expect(maximumActive).toBe(2);
   });
 });

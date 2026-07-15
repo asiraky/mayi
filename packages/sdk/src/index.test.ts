@@ -143,6 +143,64 @@ describe("MayiClient approvals.request", () => {
 });
 
 describe("MayiClient safe failures", () => {
+  it.each([
+    "http://example.com",
+    "http://10.0.0.1:3000",
+    "http://192.168.1.10",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://[::1]:3000",
+  ])("rejects an insecure origin without acquiring credentials: %s", (origin) => {
+    const getAccessToken = vi.fn(async () => "token");
+    const fetchMock = vi.fn<MayiFetch>();
+
+    expect(() => new MayiClient({ origin, getAccessToken, fetch: fetchMock }))
+      .toThrow(MayiConfigurationError);
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "http://example.com",
+    "http://10.0.0.1:3000",
+    "http://192.168.1.10",
+  ])("rejects non-loopback HTTP even with the development opt-in: %s", (origin) => {
+    expect(() => new MayiClient({
+      origin,
+      dangerouslyAllowInsecureHttpForDevelopment: true,
+      fetch: vi.fn<MayiFetch>(),
+    })).toThrow(MayiConfigurationError);
+  });
+
+  it.each([
+    "http://user@localhost:3000",
+    "http://localhost:3000/api",
+    "http://localhost:3000/?debug=1",
+    "http://localhost:3000/#debug",
+  ])("keeps unsafe URL components forbidden with the development opt-in: %s", (origin) => {
+    expect(() => new MayiClient({
+      origin,
+      dangerouslyAllowInsecureHttpForDevelopment: true,
+      fetch: vi.fn<MayiFetch>(),
+    })).toThrow(MayiConfigurationError);
+  });
+
+  it.each([
+    ["http://localhost:3000", "http://localhost:3000"],
+    ["http://127.0.0.1:4321", "http://127.0.0.1:4321"],
+    ["http://[::1]:8787", "http://[::1]:8787"],
+  ])("allows explicit loopback HTTP development: %s", async (origin, expectedOrigin) => {
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse([pendingApproval]));
+    const client = new MayiClient({
+      origin,
+      dangerouslyAllowInsecureHttpForDevelopment: true,
+      fetch: fetchMock,
+    });
+
+    await client.listApprovals();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(`${expectedOrigin}/api/approvals`);
+  });
+
   it("fails authenticated calls safely when the provider is missing", async () => {
     const fetchMock = vi.fn<MayiFetch>();
     const client = new MayiClient({ origin: "https://mayi.example", fetch: fetchMock });

@@ -1,14 +1,17 @@
-import { createId } from "@mayi/contracts";
+import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, createId } from "@mayi/contracts";
 import { createApp, createRouter, toWebHandler } from "h3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import decision from "../api/approvals/[id]/decision.post";
 import cancel from "../api/approvals/[id]/cancel.post";
+import { auditJobSucceeded, deliverProviderRequest } from "../api/internal/jobs/drain.post";
 import {
   CALLBACK_JOB_TYPE,
   CallbackDeliveryError,
   claimNextJob,
   markCallbackDelivered,
   markCallbackFailed,
+  markOutboxJobFailed,
+  markOutboxJobSucceeded,
   replayDeadLetterCallback,
 } from "./callback-outbox";
 import { tokenHash } from "./crypto";
@@ -97,6 +100,15 @@ async function failCallbackJobInserts(): Promise<void> {
 async function allowCallbackJobInserts(): Promise<void> {
   await database().sql`drop trigger if exists test_fail_callback_job on jobs`;
   await database().sql`drop function if exists test_fail_callback_job()`;
+}
+
+async function createGenericJob(type: "push.approval_pending" | "webhook.approval_pending" | "email.approval_pending") {
+  const id = createId();
+  await database().sql`
+    insert into jobs (id, workspace_id, type, dedupe_key, payload)
+    values (${id}, ${ids.workspace}, ${type}, ${createId()}, ${JSON.stringify({ approvalId: createId() })}::jsonb)
+  `;
+  return (await claimNextJob(database().sql, { jobId: id }))!;
 }
 
 beforeAll(async () => {
@@ -236,6 +248,56 @@ describe.sequential("terminal callback outbox transactions", () => {
     await expect(markCallbackDelivered(replayed!)).resolves.toBe(true);
   });
 
+  it.each([
+    "push.approval_pending",
+    "webhook.approval_pending",
+    "email.approval_pending",
+  ] as const)("fences a late %s failure after a reclaimed attempt succeeds", async (type) => {
+    const first = await createGenericJob(type);
+    await database().sql`update jobs set locked_at = now() - interval '6 minutes' where id = ${first.id}`;
+    const second = await claimNextJob(database().sql, { jobId: first.id });
+    expect(second).toMatchObject({ attempts: 2 });
+
+    await expect(markOutboxJobSucceeded(second!)).resolves.toBe(true);
+    await expect(markOutboxJobFailed(first, new Error("late failure"))).resolves.toBe("stale");
+    const [job] = await database().sql`select state, attempts, lease_token from jobs where id = ${first.id}`;
+    expect(job).toMatchObject({ state: "SUCCEEDED", attempts: 2, lease_token: null });
+  });
+
+  it.each([
+    "push.approval_pending",
+    "webhook.approval_pending",
+    "email.approval_pending",
+  ] as const)("fences a late %s success after a reclaimed attempt fails", async (type) => {
+    const first = await createGenericJob(type);
+    await database().sql`update jobs set locked_at = now() - interval '6 minutes' where id = ${first.id}`;
+    const second = await claimNextJob(database().sql, { jobId: first.id });
+
+    await expect(markOutboxJobFailed(second!, new Error("current failure"))).resolves.toBe("retry");
+    await expect(markOutboxJobSucceeded(first)).resolves.toBe(false);
+    const [job] = await database().sql`select state, attempts, lease_token from jobs where id = ${first.id}`;
+    expect(job).toMatchObject({ state: "FAILED", attempts: 2, lease_token: null });
+  });
+
+  it("does not reclassify a delivered job when success auditing fails", async () => {
+    const job = await createGenericJob("push.approval_pending");
+    await expect(markOutboxJobSucceeded(job)).resolves.toBe(true);
+    await expect(auditJobSucceeded(job, async () => { throw new Error("audit unavailable"); })).resolves.toBe(false);
+    const [stored] = await database().sql`select state, attempts from jobs where id = ${job.id}`;
+    expect(stored).toMatchObject({ state: "SUCCEEDED", attempts: 1 });
+  });
+
+  it("bounds provider requests independently of the five-minute job lease", async () => {
+    const started = Date.now();
+    await expect(deliverProviderRequest("https://provider.example", {}, {
+      timeoutMs: 20,
+      fetch: async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      }),
+    })).rejects.toBeDefined();
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it("dead-letters exhausted delivery and manual replay keeps the stable event ID", async () => {
     const { approvalId, callbackId } = await createPending();
     expect((await decide(approvalId, "DENIED")).status).toBe(200);
@@ -252,5 +314,33 @@ describe.sequential("terminal callback outbox transactions", () => {
     const [replayedJob] = await database().sql`select state, attempts, dedupe_key from jobs where id = ${row!.id}`;
     expect(replayed).toMatchObject({ delivery_status: "READY", attempts: 0 });
     expect(replayedJob).toMatchObject({ state: "READY", attempts: 0, dedupe_key: callbackId });
+  });
+
+  it("allows operator replay inside the callback acceptance window and rejects older events", async () => {
+    const within = await createPending();
+    expect((await decide(within.approvalId, "DENIED")).status).toBe(200);
+    const [withinRow] = await database().sql`select id from jobs where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${within.callbackId}`;
+    const withinJob = await claimNextJob(database().sql, { jobId: String(withinRow!.id) });
+    await expect(markCallbackFailed(withinJob!, new CallbackDeliveryError("http_400", false))).resolves.toBe("dead_letter");
+    await database().sql`
+      update approval_callbacks
+      set occurred_at = now() - make_interval(secs => ${CALLBACK_ACCEPTANCE_WINDOW_SECONDS - 60})
+      where id = ${within.callbackId}
+    `;
+    await expect(replayDeadLetterCallback(within.callbackId)).resolves.toEqual({ id: within.callbackId, status: "READY" });
+
+    const outside = await createPending();
+    expect((await decide(outside.approvalId, "DENIED")).status).toBe(200);
+    const [outsideRow] = await database().sql`select id from jobs where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${outside.callbackId}`;
+    const outsideJob = await claimNextJob(database().sql, { jobId: String(outsideRow!.id) });
+    await expect(markCallbackFailed(outsideJob!, new CallbackDeliveryError("http_400", false))).resolves.toBe("dead_letter");
+    await database().sql`
+      update approval_callbacks
+      set occurred_at = now() - make_interval(secs => ${CALLBACK_ACCEPTANCE_WINDOW_SECONDS + 60})
+      where id = ${outside.callbackId}
+    `;
+    await expect(replayDeadLetterCallback(outside.callbackId)).rejects.toMatchObject({
+      code: "callback_replay_window_expired",
+    });
   });
 });

@@ -11,6 +11,28 @@ All production targets require PostgreSQL 15+, a private durable object store, H
 
 Set `CONSUMER_API_KEYS` to a JSON object mapping receipt audiences to relying-party secrets only when consumed receipts are enabled. The optional push, email, and first-owner settings are documented in `.env.example`.
 
+Dynamic OAuth registration records an atomic, database-backed attempt window
+before body parsing and callback DNS resolution, plus a separate successful
+registration limit. Its client identity must come from a trusted transport:
+
+- Direct Node uses the socket peer and ignores `X-Forwarded-For`.
+- Vercel uses its overwritten `X-Vercel-Forwarded-For` header when `VERCEL=1`.
+- The committed Cloudflare Worker sets
+  `OAUTH_REGISTRATION_TRUSTED_IP_HEADER=cf-connecting-ip`; do not put an
+  attacker-controlled Worker in front of it without replacing that trust
+  boundary.
+- A VPS reverse proxy may set `OAUTH_REGISTRATION_TRUSTED_IP_HEADER` only when
+  it overwrites that header with exactly one client address and the application
+  port cannot be reached around the proxy. Multi-hop/comma-separated values are
+  rejected instead of guessing which hop is trusted.
+
+The attempt limit is shared across runtime instances. Production deployments
+should also enforce a coarse abuse limit at their trusted edge to reject floods
+before they consume a database connection. Cloudflare documents the
+[`CF-Connecting-IP` contract](https://developers.cloudflare.com/fundamentals/reference/http-headers/#cf-connecting-ip),
+and Vercel documents its
+[`X-Vercel-Forwarded-For` header](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
+
 Back up the database and object store, then apply the committed Drizzle migrations before new application code serves production traffic. After deployment, verify `/api/health` and `/api/ready`. Receipt keys and `CRON_SECRET` must persist across deployments; rotating them is a separate operation described in `docs/OPERATIONS.md`.
 
 The npm Trusted Publishing, protected environment, version-PR, prerelease, and
@@ -36,6 +58,13 @@ For the application Worker:
 6. Run `pnpm --filter @mayi/server build:cloudflare`, then `pnpm exec wrangler deploy --config wrangler.toml`.
 
 The first successful deployment provisions the `app.mayi.sh` custom domain. The Worker Cron Trigger runs every minute and calls the authenticated durable-job recovery endpoint.
+
+Forwarding webhook verification and delivery require a runtime that can connect
+to the address selected by public-DNS validation while retaining the original
+TLS hostname. The Node and Vercel paths support this. Cloudflare and other edge
+runtimes fail forwarding closed unless the deployment supplies an equivalent
+public-only, address-pinned egress path; approval callbacks continue to use
+their separately documented transport policy.
 
 ### GitHub deployment
 

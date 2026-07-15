@@ -1,7 +1,9 @@
 import { createId } from "@mayi/contracts";
-import { createError, defineEventHandler, getRequestIP, readRawBody } from "h3";
+import type { DatabaseSql } from "@mayi/db";
+import { createError, defineEventHandler, getHeader, getRequestIP, type H3Event } from "h3";
 import { z } from "zod";
 import { tokenHash } from "../../utils/crypto";
+import { readBoundedBody } from "../../utils/http";
 import {
   validatePublicHttpsUrl,
   type ValidatePublicHttpsUrlOptions,
@@ -14,7 +16,9 @@ export const OAUTH_REGISTRATION_LIMITS = {
   redirectUris: 5,
   approvalCallbackUris: 10,
   uriChars: 2048,
+  attemptsPerIpPerHour: 30,
   successfulPerIpPerHour: 10,
+  concurrentDnsValidations: 16,
 } as const;
 
 const Uri = z.string().min(1).max(OAUTH_REGISTRATION_LIMITS.uriChars);
@@ -106,6 +110,117 @@ export function assertRegistrationRateAllowed(successfulRegistrations: number): 
   }
 }
 
+export class RegistrationValidationGate {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(private readonly maximum: number) {
+    if (!Number.isSafeInteger(maximum) || maximum < 1) throw new TypeError("maximum is invalid");
+  }
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.maximum) await new Promise<void>((resolve) => this.waiting.push(resolve));
+    this.active += 1;
+    try {
+      return await task();
+    } finally {
+      this.active -= 1;
+      this.waiting.shift()?.();
+    }
+  }
+}
+
+const runtimeState = globalThis as typeof globalThis & {
+  __mayiOAuthRegistrationValidationGate?: RegistrationValidationGate;
+};
+
+function validationGate(): RegistrationValidationGate {
+  return runtimeState.__mayiOAuthRegistrationValidationGate ??= new RegistrationValidationGate(
+    OAUTH_REGISTRATION_LIMITS.concurrentDnsValidations,
+  );
+}
+
+const TRUSTED_IP_HEADER_PATTERN = /^[a-z0-9-]{1,100}$/;
+
+function validClientAddress(value: string): boolean {
+  if (value.length > 128 || value.includes(",") || /\s/.test(value)) return false;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value)) {
+    return value.split(".").every((part) => Number(part) <= 255);
+  }
+  if (!value.includes(":")) return false;
+  try {
+    return new URL(`http://[${value}]/`).hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeRegistrationClientAddress(value: string | undefined): string {
+  const address = value?.trim();
+  if (!address || !validClientAddress(address)) {
+    throw createError({ statusCode: 400, statusMessage: "Registration source IP is unavailable" });
+  }
+  return address.toLowerCase();
+}
+
+export function registrationClientAddress(
+  event: H3Event,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const configuredHeader = (
+    env.OAUTH_REGISTRATION_TRUSTED_IP_HEADER
+    ?? (env.VERCEL === "1" ? "x-vercel-forwarded-for" : undefined)
+  )?.trim().toLowerCase();
+  if (configuredHeader) {
+    if (!TRUSTED_IP_HEADER_PATTERN.test(configuredHeader)) {
+      throw createError({ statusCode: 500, statusMessage: "OAuth registration IP header configuration is invalid" });
+    }
+    // The configured proxy must overwrite this header with one address. Lists are
+    // deliberately rejected rather than guessing which hop is trustworthy.
+    return normalizeRegistrationClientAddress(getHeader(event, configuredHeader));
+  }
+  return normalizeRegistrationClientAddress(getRequestIP(event));
+}
+
+export function assertRegistrationAttemptAllowed(attempts: number): void {
+  if (attempts > OAUTH_REGISTRATION_LIMITS.attemptsPerIpPerHour) {
+    throw createError({ statusCode: 429, statusMessage: "OAuth client registration attempt limit exceeded" });
+  }
+}
+
+export async function recordRegistrationAttempt(
+  identityHash: string,
+  sql: DatabaseSql = database().sql,
+): Promise<number> {
+  const deniedCount = OAUTH_REGISTRATION_LIMITS.attemptsPerIpPerHour + 1;
+  const [recorded] = await sql`
+    with pruned as (
+      delete from oauth_registration_attempts
+      where identity_hash in (
+        select identity_hash from oauth_registration_attempts
+        where last_attempt_at < now() - interval '24 hours'
+          and identity_hash <> ${identityHash}
+        order by last_attempt_at
+        limit 25
+      )
+    )
+    insert into oauth_registration_attempts (identity_hash, window_started_at, attempts, last_attempt_at)
+    values (${identityHash}, now(), 1, now())
+    on conflict (identity_hash) do update set
+      attempts = case
+        when oauth_registration_attempts.window_started_at <= now() - interval '1 hour' then 1
+        else least(oauth_registration_attempts.attempts + 1, ${deniedCount})
+      end,
+      window_started_at = case
+        when oauth_registration_attempts.window_started_at <= now() - interval '1 hour' then now()
+        else oauth_registration_attempts.window_started_at
+      end,
+      last_attempt_at = now()
+    returning attempts
+  `;
+  return Number(recorded!.attempts);
+}
+
 async function insertRegistration(input: OAuthRegistrationInput, registrationIpHash: string): Promise<string> {
   const id = createId();
   return database().sql.begin("isolation level serializable", async (sql) => {
@@ -126,11 +241,18 @@ async function insertRegistration(input: OAuthRegistrationInput, registrationIpH
 }
 
 export default defineEventHandler(async (event) => {
-  const raw = await readRawBody(event, false);
-  const input = await parseAndValidateRegistration(raw);
-  const sourceIp = getRequestIP(event, { xForwardedFor: true });
-  if (!sourceIp) throw createError({ statusCode: 400, statusMessage: "Registration source IP is unavailable" });
-  const id = await insertRegistration(input, await tokenHash(sourceIp));
+  const sourceIp = registrationClientAddress(event);
+  const registrationIpHash = await tokenHash(sourceIp);
+  // Attempts are consumed before body parsing or callback DNS validation, so
+  // malformed and unresolvable registrations cannot bypass resource limits.
+  assertRegistrationAttemptAllowed(await recordRegistrationAttempt(registrationIpHash));
+  const raw = await readBoundedBody(
+    event,
+    OAUTH_REGISTRATION_LIMITS.bodyBytes,
+    "Registration body exceeds 32 KiB",
+  );
+  const input = await validationGate().run(() => parseAndValidateRegistration(raw));
+  const id = await insertRegistration(input, registrationIpHash);
   return {
     client_id: id,
     client_name: input.client_name,

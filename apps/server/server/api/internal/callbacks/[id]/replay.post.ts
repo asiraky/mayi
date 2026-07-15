@@ -12,6 +12,9 @@ export default defineEventHandler(async (event) => {
     if (error instanceof CallbackDeliveryError && error.code === "callback_not_dead_lettered") {
       throw createError({ statusCode: 409, statusMessage: "Callback is not dead-lettered" });
     }
+    if (error instanceof CallbackDeliveryError && error.code === "callback_replay_window_expired") {
+      throw createError({ statusCode: 410, statusMessage: "Callback replay window has expired" });
+    }
     throw error;
   }
 });

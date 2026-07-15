@@ -1,9 +1,11 @@
-import { createId, ID_PATTERN, type ApprovalRequest } from "@mayi/contracts";
+import { createId, ID_PATTERN, sha256, type ApprovalRequest } from "@mayi/contracts";
+import type { ObjectStore } from "@mayi/storage";
 import { createApp, toWebHandler } from "h3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import requestApproval from "../api/approvals/request.post";
 import { tokenHash } from "./crypto";
-import { database } from "./runtime";
+import { configureEdgeRuntime, database } from "./runtime";
+import { cleanupExpiredStagedArtefacts } from "./staged-artefact-cleanup";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://mayi:mayi@localhost:55432/mayi";
 process.env.DATABASE_URL = DATABASE_URL;
@@ -28,6 +30,27 @@ const ids = {
   forwardingDestination: createId(),
   forwardingRule: createId(),
 };
+
+class MemoryObjectStore implements ObjectStore {
+  readonly values = new Map<string, { bytes: Uint8Array; mediaType: string }>();
+  async putImmutable(key: string, bytes: Uint8Array, mediaType: string): Promise<void> {
+    if (await this.putIfAbsent(key, bytes, mediaType) === "exists") throw new Error("Object already exists");
+  }
+  async putIfAbsent(key: string, bytes: Uint8Array, mediaType: string): Promise<"created" | "exists"> {
+    if (this.values.has(key)) return "exists";
+    this.values.set(key, { bytes: bytes.slice(), mediaType });
+    return "created";
+  }
+  async get(key: string): Promise<{ bytes: Uint8Array; mediaType?: string }> {
+    const value = this.values.get(key);
+    if (!value) throw new Error("Object not found");
+    return { bytes: value.bytes.slice(), mediaType: value.mediaType };
+  }
+  async delete(key: string): Promise<void> { this.values.delete(key); }
+}
+
+const objectStore = new MemoryObjectStore();
+configureEdgeRuntime({ objectStore });
 
 const baseInput: ApprovalRequest = {
   action: {
@@ -216,16 +239,24 @@ describe.sequential("POST /api/approvals/request", () => {
 
   it("atomically claims ordered request-bound artefacts into the pending manifest", async () => {
     const artefactIds = [createId(), createId()] as const;
+    const objectKeys = [`${ids.workspace}/stage/0`, `${ids.workspace}/stage/1`] as const;
+    const fileBytes = [
+      new TextEncoder().encode("%PDF-10"),
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    ] as const;
+    await objectStore.putImmutable(objectKeys[0], fileBytes[0], "application/pdf");
+    await objectStore.putImmutable(objectKeys[1], fileBytes[1], "image/png");
+    const hashes = [await sha256(fileBytes[0]), await sha256(fileBytes[1])] as const;
     await database().sql`
       insert into artefacts (
         id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
         expires_at, object_key, filename, media_type, size, sha256, state
       ) values (
         ${artefactIds[0]}, ${ids.workspace}, ${ids.agentA}, 'staged-evidence', 0, ${"1".repeat(64)},
-        now() + interval '1 hour', ${`${ids.workspace}/stage/0`}, 'plan.pdf', 'application/pdf', 8, ${"a".repeat(64)}, 'READY'
+        now() + interval '1 hour', ${objectKeys[0]}, 'plan.pdf', 'application/pdf', ${fileBytes[0].byteLength}, ${hashes[0]}, 'READY'
       ), (
         ${artefactIds[1]}, ${ids.workspace}, ${ids.agentA}, 'staged-evidence', 1, ${"2".repeat(64)},
-        now() + interval '1 hour', ${`${ids.workspace}/stage/1`}, 'preview.png', 'image/png', 8, ${"b".repeat(64)}, 'READY'
+        now() + interval '1 hour', ${objectKeys[1]}, 'preview.png', 'image/png', ${fileBytes[1].byteLength}, ${hashes[1]}, 'READY'
       )
     `;
 
@@ -250,6 +281,11 @@ describe.sequential("POST /api/approvals/request", () => {
       [artefactIds[0], 0],
       [artefactIds[1], 1],
     ]);
+    await database().sql`update artefacts set expires_at = now() - interval '1 minute' where id in ${database().sql(artefactIds)}`;
+    await cleanupExpiredStagedArtefacts();
+    expect(await database().sql`select id from artefacts where id in ${database().sql(artefactIds)}`).toHaveLength(2);
+    expect(objectStore.values.has(objectKeys[0])).toBe(true);
+    expect(objectStore.values.has(objectKeys[1])).toBe(true);
   });
 
   it("rejects artefacts staged under a different request key", async () => {
@@ -268,6 +304,52 @@ describe.sequential("POST /api/approvals/request", () => {
       key: "cross-request-stage",
     });
     expect(response.status).toBe(422);
+  });
+
+  it("refuses to claim READY metadata when its immutable object is missing", async () => {
+    const artefactId = createId();
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
+        expires_at, object_key, filename, media_type, size, sha256, state
+      ) values (
+        ${artefactId}, ${ids.workspace}, ${ids.agentA}, 'missing-storage', 0, ${"5".repeat(64)},
+        now() + interval '1 hour', ${`${ids.workspace}/stage/missing`}, 'missing.pdf',
+        'application/pdf', 8, ${"a".repeat(64)}, 'READY'
+      )
+    `;
+
+    const response = await post({ ...baseInput, artefactIds: [artefactId] }, {
+      token: TOKENS.createA,
+      key: "missing-storage",
+    });
+    expect(response.status).toBe(409);
+    expect(await database().sql`select id from approvals where explanation = ${baseInput.explanation} and id in (
+      select approval_id from approval_artefacts where artefact_id = ${artefactId}
+    )`).toHaveLength(0);
+    const [row] = await database().sql`select approval_id, state from artefacts where id = ${artefactId}`;
+    expect(row).toMatchObject({ approval_id: null, state: "READY" });
+  });
+
+  it("refuses to claim a staged row already committed to DELETING", async () => {
+    const artefactId = createId();
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
+        expires_at, object_key, filename, media_type, size, sha256, state
+      ) values (
+        ${artefactId}, ${ids.workspace}, ${ids.agentA}, 'deleting-storage', 0, ${"6".repeat(64)},
+        now() - interval '1 minute', ${`${ids.workspace}/stage/deleting`}, 'deleting.pdf',
+        'application/pdf', 8, ${"b".repeat(64)}, 'DELETING'
+      )
+    `;
+    const response = await post({ ...baseInput, artefactIds: [artefactId] }, {
+      token: TOKENS.createA,
+      key: "deleting-storage",
+    });
+    expect(response.status).toBe(422);
+    const [row] = await database().sql`select approval_id, state from artefacts where id = ${artefactId}`;
+    expect(row).toMatchObject({ approval_id: null, state: "DELETING" });
   });
 
   it("rejects a callback registered only to a different OAuth client", async () => {
@@ -320,13 +402,17 @@ describe.sequential("POST /api/approvals/request", () => {
     `;
     const explanation = `Atomic rollback ${createId()}`;
     const artefactId = createId();
+    const objectKey = `${ids.workspace}/stage/rollback`;
+    const bytes = new TextEncoder().encode("%PDF-rb");
+    await objectStore.putImmutable(objectKey, bytes, "application/pdf");
+    const digest = await sha256(bytes);
     await database().sql`
       insert into artefacts (
         id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
         expires_at, object_key, filename, media_type, size, sha256, state
       ) values (
         ${artefactId}, ${ids.workspace}, ${ids.agentA}, 'atomic-rollback', 0, ${"4".repeat(64)},
-        now() + interval '1 hour', ${`${ids.workspace}/stage/rollback`}, 'plan.pdf', 'application/pdf', 8, ${"d".repeat(64)}, 'READY'
+        now() + interval '1 hour', ${objectKey}, 'plan.pdf', 'application/pdf', ${bytes.byteLength}, ${digest}, 'READY'
       )
     `;
     try {

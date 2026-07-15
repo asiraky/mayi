@@ -1,4 +1,4 @@
-import { createCallbackStateCodec, type MayiFetch } from "@mayi/sdk";
+import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, createCallbackStateCodec, type MayiFetch } from "@mayi/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   createInputRequestedHandler,
@@ -64,7 +64,7 @@ function createFetchMock() {
 async function runtime(fetch: MayiFetch) {
   const callbackStateCodec = await createCallbackStateCodec({
     currentKey: { kid: "test-key", key: callbackKey },
-    maximumRetryWindowSeconds: 3_833,
+    maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
     now: () => now,
   });
   return {
@@ -189,7 +189,7 @@ describe("mayiChannel", () => {
           rawContinuationToken,
           requestId: request.requestId,
           sessionId: "eve-session-one",
-          expiresAt: "2026-07-15T02:03:53.000Z",
+          expiresAt: "2026-07-22T01:00:00.000Z",
         });
       await expect(fixture.callbackStateCodec.open<MayiContinuationStateV1>(call.body.callback.state))
         .resolves.not.toMatchObject({ rawContinuationToken: inputChannel.continuationToken });

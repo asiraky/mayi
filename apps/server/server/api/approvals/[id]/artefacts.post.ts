@@ -1,23 +1,28 @@
 import { createId, sha256 } from "@mayi/contracts";
-import { createError, defineEventHandler, getHeader, getQuery, getRouterParam, readRawBody } from "h3";
+import { createError, defineEventHandler, getHeader, getQuery, getRouterParam } from "h3";
 import { requireAgent } from "../../../utils/auth";
-import { database } from "../../../utils/runtime";
-import { objects } from "../../../utils/runtime";
-
-const allowed = new Set(["application/pdf", "image/png", "image/jpeg", "image/webp"]);
-const maximum = 25 * 1024 * 1024;
+import {
+  ARTEFACT_MEDIA_TYPES,
+  MAX_ARTEFACT_BYTES,
+  detectArtefactMediaType,
+  type ArtefactMediaType,
+} from "../../../utils/artefacts";
+import { readBoundedBody } from "../../../utils/http";
+import { database, objects } from "../../../utils/runtime";
 
 export default defineEventHandler(async (event) => {
   const auth = await requireAgent(event, "approval:create");
   const approvalId = getRouterParam(event, "id")!;
   const filename = String(getQuery(event).filename ?? "").trim();
-  const mediaType = String(getHeader(event, "content-type") ?? "").split(";", 1)[0]!;
+  const declaredMediaType = String(getHeader(event, "content-type") ?? "").split(";", 1)[0] as ArtefactMediaType;
   if (!filename || filename.length > 255) throw createError({ statusCode: 422, statusMessage: "A valid filename query parameter is required" });
-  if (!allowed.has(mediaType)) throw createError({ statusCode: 415, statusMessage: "Only PDF, PNG, JPEG, and WebP evidence is accepted" });
-  const declared = Number(getHeader(event, "content-length") ?? 0);
-  if (declared > maximum) throw createError({ statusCode: 413, statusMessage: "Artefact exceeds 25 MiB" });
-  const body = await readRawBody(event, false);
-  if (!body?.byteLength || body.byteLength > maximum) throw createError({ statusCode: 413, statusMessage: "Artefact is empty or exceeds 25 MiB" });
+  if (!ARTEFACT_MEDIA_TYPES.includes(declaredMediaType)) throw createError({ statusCode: 415, statusMessage: "Only PDF, PNG, JPEG, and WebP evidence is accepted" });
+  const body = await readBoundedBody(event, MAX_ARTEFACT_BYTES, "Artefact exceeds 25 MiB");
+  if (!body?.byteLength || body.byteLength > MAX_ARTEFACT_BYTES) throw createError({ statusCode: 413, statusMessage: "Artefact is empty or exceeds 25 MiB" });
+  const mediaType = detectArtefactMediaType(body);
+  if (!mediaType || mediaType !== declaredMediaType) {
+    throw createError({ statusCode: 415, statusMessage: "Artefact bytes do not match the declared media type" });
+  }
   const draft = await database().sql`select 1 from approvals where id = ${approvalId} and workspace_id = ${auth.workspaceId} and agent_id = ${auth.agentId} and state = 'DRAFT'`;
   if (!draft.length) throw createError({ statusCode: 409, statusMessage: "Only the owning agent may upload to a draft" });
   const id = createId();

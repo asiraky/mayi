@@ -9,6 +9,7 @@ SESSION_COOKIE_SECURE = "true"
 RECEIPT_ISSUER = "https://app.mayi.sh"
 RECEIPT_AUDIENCE = "mayi-executor"
 RETENTION_DAYS = "90"
+OAUTH_REGISTRATION_TRUSTED_IP_HEADER = "cf-connecting-ip"
 
 [[routes]]
 pattern = "app.mayi.sh"

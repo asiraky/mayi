@@ -1,6 +1,6 @@
 {
-  "id": "a518b84e-cd12-4c23-8e05-1d436fa3bc27",
-  "prevId": "dfb60713-bef4-4bfe-8d51-943cc0de326a",
+  "id": "720e6941-214f-4957-afce-2637212680b9",
+  "prevId": "a518b84e-cd12-4c23-8e05-1d436fa3bc27",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -887,7 +887,7 @@
       "checkConstraints": {
         "artefacts_state_check": {
           "name": "artefacts_state_check",
-          "value": "\"artefacts\".\"state\" IN ('UPLOADING', 'READY')"
+          "value": "\"artefacts\".\"state\" IN ('UPLOADING', 'READY', 'DELETING')"
         },
         "artefacts_upload_ordinal_check": {
           "name": "artefacts_upload_ordinal_check",
@@ -895,7 +895,7 @@
         },
         "artefacts_staging_check": {
           "name": "artefacts_staging_check",
-          "value": "\n    (\"artefacts\".\"request_key\" IS NULL AND \"artefacts\".\"approval_id\" IS NOT NULL)\n    OR\n    (\"artefacts\".\"request_key\" IS NOT NULL AND \"artefacts\".\"agent_id\" IS NOT NULL AND \"artefacts\".\"upload_ordinal\" IS NOT NULL AND \"artefacts\".\"upload_payload_hash\" IS NOT NULL AND \"artefacts\".\"expires_at\" IS NOT NULL)\n  "
+          "value": "\n    (\"artefacts\".\"request_key\" IS NULL AND \"artefacts\".\"approval_id\" IS NOT NULL)\n    OR\n    (\"artefacts\".\"request_key\" IS NOT NULL AND \"artefacts\".\"agent_id\" IS NOT NULL AND \"artefacts\".\"upload_ordinal\" IS NOT NULL AND \"artefacts\".\"upload_payload_hash\" IS NOT NULL AND \"artefacts\".\"expires_at\" IS NOT NULL\n      AND (\"artefacts\".\"state\" <> 'DELETING' OR \"artefacts\".\"approval_id\" IS NULL))\n  "
         }
       },
       "isRLSEnabled": false

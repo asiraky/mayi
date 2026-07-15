@@ -14,8 +14,13 @@ Generate a new pair with `pnpm --filter @mayi/receipts generate-key`. First appe
 
 Retain old public keys through the maximum receipt lifetime, then remove them from `RECEIPT_PREVIOUS_PUBLIC_JWKS`. Never put private JWKs in that variable. Emergency revocation removes the affected public key; offline verifiers observe the change on their next JWKS refresh.
 
-The same active key signs terminal callback events. Retain an old public key for
-at least the callback replay/event-age window as well as the receipt lifetime.
+The same active key signs terminal callback events. Terminal events retain their
+original event ID and occurrence time for every automatic attempt and manual
+replay. Retain an old public key for at least seven days after its last callback
+signature, as well as for the receipt lifetime. Eve callback-state encryption
+keys can be used when a request is created up to seven days before it resolves,
+so retain decrypt-only callback-state keys until all approvals created with the
+key have resolved or expired, plus another seven days.
 The body sent over HTTP is canonical JSON and must not be reserialized between
 signature creation and transmission.
 
@@ -36,7 +41,9 @@ is 3,832.5 seconds (63 minutes 52.5 seconds), excluding request runtime and the
 job scheduler interval. Connect, response, and total time are bounded to 3, 5,
 and 10 seconds respectively; response bodies are discarded after at most 64
 KiB. A worker lease is five minutes. Each drain reclaims stale `RUNNING` jobs so
-a process crash cannot orphan delivery indefinitely.
+a process crash cannot orphan delivery indefinitely. Receivers accept a stable
+terminal event for seven days after its `occurredAt`, which covers all automatic
+backoff and transport budgets plus scheduler, queue, and deployment outages.
 
 Exhausted or permanently failed callbacks enter `DEAD_LETTER`. After correcting
 the receiver, replay one with the same stable event ID and occurrence time:
@@ -47,7 +54,12 @@ curl -X POST \
   "$PUBLIC_ORIGIN/api/internal/callbacks/AbCdEfGhIjKl/replay"
 ```
 
-Replay is allowed only from `DEAD_LETTER` and starts a new 10-attempt cycle.
+Replay is allowed only from `DEAD_LETTER`, within seven days of the original
+`occurredAt`, and starts a new 10-attempt cycle. Replay deliberately retains the
+original event ID, occurrence time, and signed body so consumer duplicate fences
+remain valid. Requests outside the seven-day operational recovery window fail
+closed with `410 Gone`. Retain callback and callback-job rows for at least this
+window; schedule operator recovery before it closes.
 Stored `last_error` values are bounded classifications such as `http_503` or
 `network_error`; URLs, provider response bodies, opaque state, receipts, and
 credentials must never be copied into errors, audit metadata, or logs.

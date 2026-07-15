@@ -3,6 +3,15 @@ import { Action } from "./action";
 import { Id } from "./id";
 
 export const MAX_CALLBACK_STATE_LENGTH = 32 * 1024;
+export const MAX_APPROVAL_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Terminal callbacks keep their original event ID and occurrence time across
+ * automatic attempts and operator replay. Consumers therefore accept that
+ * stable event for seven days after resolution. Callback state is retained for
+ * the same interval after the approval's latest possible expiry.
+ */
+export const CALLBACK_ACCEPTANCE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
 export const ApprovalCallback = z.object({
   url: z.url().max(2_048),
@@ -14,7 +23,7 @@ export const ApprovalRequest = z.object({
   action: Action,
   explanation: z.string().min(1).max(10_000),
   suggestedApproverId: Id.optional(),
-  expiresInSeconds: z.number().int().min(60).max(7 * 24 * 60 * 60),
+  expiresInSeconds: z.number().int().min(60).max(MAX_APPROVAL_LIFETIME_SECONDS),
   callback: ApprovalCallback,
   artefactIds: z.array(Id).max(20).optional(),
 }).strict();

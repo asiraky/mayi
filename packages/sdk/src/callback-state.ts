@@ -1,4 +1,5 @@
 import {
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS as CONTRACT_CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
   MAX_CALLBACK_STATE_LENGTH,
   SealedCallbackStateEnvelope as SealedCallbackStateEnvelopeSchema,
   canonicalize,
@@ -12,6 +13,9 @@ const MAX_PLAINTEXT_BYTES = 24_000;
 const MAX_RETRY_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 const MAX_CALLBACK_STATE_KEYS = 16;
 const KID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+/** Shared server/consumer window for automatic delivery and operator replay. */
+export const CALLBACK_ACCEPTANCE_WINDOW_SECONDS = CONTRACT_CALLBACK_ACCEPTANCE_WINDOW_SECONDS;
 
 export type CallbackStateKeyMaterial = string | Uint8Array;
 

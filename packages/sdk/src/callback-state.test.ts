@@ -1,4 +1,8 @@
-import { MAX_CALLBACK_STATE_LENGTH, type SealedCallbackStateEnvelope } from "@mayi/contracts";
+import {
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+  MAX_CALLBACK_STATE_LENGTH,
+  type SealedCallbackStateEnvelope,
+} from "@mayi/contracts";
 import { describe, expect, it } from "vitest";
 import {
   CallbackStateConfigurationError,
@@ -56,6 +60,21 @@ describe("callback-state codec", () => {
 
     now = start + 60_000 + 300_000 - 1;
     await expect(codec.open(sealed)).resolves.toEqual({ callId: "call-42" });
+    now += 1;
+    await expect(codec.open(sealed)).rejects.toEqual(errorCode("EXPIRED"));
+  });
+
+  it("keeps callback state decryptable through the shared operator replay window", async () => {
+    let now = start;
+    const approvalExpiresAt = start + 60_000;
+    const codec = await createCallbackStateCodec(options({
+      now: () => now,
+      maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+    }));
+    const sealed = await codec.seal({ callId: "manual-replay" }, { approvalExpiresAt });
+
+    now = approvalExpiresAt + CALLBACK_ACCEPTANCE_WINDOW_SECONDS * 1_000 - 1;
+    await expect(codec.open(sealed)).resolves.toEqual({ callId: "manual-replay" });
     now += 1;
     await expect(codec.open(sealed)).rejects.toEqual(errorCode("EXPIRED"));
   });

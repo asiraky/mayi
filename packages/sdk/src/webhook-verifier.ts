@@ -1,5 +1,6 @@
 import {
   ApprovalResolvedEvent as ApprovalResolvedEventSchema,
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
   canonicalize,
 } from "@mayi/contracts";
 import { compactVerify, decodeProtectedHeader, importJWK, type JWK } from "jose";
@@ -9,13 +10,13 @@ export const MAYI_JWKS_PATH = "/.well-known/jwks.json";
 export const MAYI_SIGNATURE_HEADER = "x-mayi-signature";
 
 const WEBHOOK_JWS_TYPE = "mayi-webhook+jws";
-const MAX_WEBHOOK_BODY_BYTES = 128 * 1024;
+export const MAX_WEBHOOK_BODY_BYTES = 128 * 1024;
 const MAX_SIGNATURE_BYTES = 256 * 1024;
 const MAX_JWKS_BYTES = 64 * 1024;
 const MAX_JWKS_KEYS = 16;
 const MAX_CACHE_TTL_SECONDS = 60 * 60;
 const MAX_REQUEST_TIMEOUT_MS = 30_000;
-const MAX_EVENT_AGE_SECONDS = 7 * 24 * 60 * 60;
+const MAX_EVENT_AGE_SECONDS = CALLBACK_ACCEPTANCE_WINDOW_SECONDS;
 const MAX_CLOCK_TOLERANCE_SECONDS = 5 * 60;
 const UNKNOWN_KEY_REFRESH_COOLDOWN_MS = 60 * 1_000;
 const KID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;

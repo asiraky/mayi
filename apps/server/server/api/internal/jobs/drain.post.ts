@@ -2,20 +2,59 @@ import { actionName, Action } from "@mayi/contracts";
 import { defineEventHandler } from "h3";
 import { database } from "../../../utils/runtime";
 import { audit } from "../../../utils/auth";
-import { signWebhook, validateOutboundUrl } from "../../../utils/forwarding";
+import { deliverForwardingHttp, signWebhook, validateOutboundUrl } from "../../../utils/forwarding";
 import {
   CALLBACK_JOB_TYPE,
   activateApprovalCallback,
   claimNextJob,
   markCallbackDelivered,
   markCallbackFailed,
+  markOutboxJobFailed,
+  markOutboxJobSucceeded,
   sendApprovalCallback,
+  type NonCallbackJobResult,
   type OutboxJob,
 } from "../../../utils/callback-outbox";
 import { requireCronSecret } from "../../../utils/internal-auth";
 import { cleanupExpiredStagedArtefacts } from "../../../utils/staged-artefact-cleanup";
 
 type Job = OutboxJob;
+export const PROVIDER_TOTAL_TIMEOUT_MS = 10_000;
+
+export async function deliverProviderRequest(
+  input: string | URL,
+  init: RequestInit,
+  options: { fetch?: typeof fetch; timeoutMs?: number } = {},
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? PROVIDER_TOTAL_TIMEOUT_MS);
+  try {
+    const response = await (options.fetch ?? fetch)(input, { ...init, signal: controller.signal });
+    void response.body?.cancel().catch(() => undefined);
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function auditJobSucceeded(
+  job: Job,
+  writer: (input: Parameters<typeof audit>[0]) => Promise<unknown> = audit,
+): Promise<boolean> {
+  try {
+    await writer({
+      workspaceId: job.workspace_id,
+      actorType: "system",
+      eventType: "job.succeeded",
+      subjectType: "job",
+      subjectId: job.id,
+      metadata: { type: job.type },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function push(job: Job): Promise<void> {
   const approvalId = job.payload.approvalId;
@@ -26,11 +65,11 @@ async function push(job: Job): Promise<void> {
   `;
   if (!devices.length) return;
   const messages = devices.map((row) => ({ to: row.expo_push_token, title: "Approval requested", body: "Open May I? to review.", data: { approvalId }, sound: "default", channelId: "default" }));
-  const response = await fetch("https://exp.host/--/api/v2/push/send", { method: "POST", headers: { "content-type": "application/json", ...(process.env.EXPO_ACCESS_TOKEN ? { authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}) }, body: JSON.stringify(messages) });
+  const response = await deliverProviderRequest("https://exp.host/--/api/v2/push/send", { method: "POST", headers: { "content-type": "application/json", ...(process.env.EXPO_ACCESS_TOKEN ? { authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}) }, body: JSON.stringify(messages) });
   if (!response.ok) throw new Error(`Expo push returned ${response.status}`);
 }
 
-async function webhook(job: Job): Promise<void> {
+async function webhook(job: Job): Promise<NonCallbackJobResult> {
   const { approvalId, destinationId, deliveryId } = job.payload;
   if (!approvalId || !destinationId || !deliveryId) throw new Error("Incomplete webhook job");
   const rows = await database().sql`
@@ -57,13 +96,21 @@ async function webhook(job: Job): Promise<void> {
     actionDigest: String(row.action_digest), artefactManifestDigest: String(row.manifest_digest), expiresAt: new Date(row.expires_at as Date).toISOString(),
     ...(row.include_action ? { action: row.action } : {}), ...(row.include_artefact_metadata ? { artefacts } : {}),
   };
-  const endpoint = await validateOutboundUrl(String(row.endpoint));
-  const response = await fetch(endpoint, { method: "POST", redirect: "manual", headers: { "content-type": "application/json", "x-mayi-signature": await signWebhook(payload), "user-agent": "MayI-Webhook/1" }, body: JSON.stringify(payload) });
-  if (!response.ok || response.status >= 300) throw new Error(`Webhook returned ${response.status}`);
-  await database().sql`update forwarding_deliveries set state = 'DELIVERED', response_code = ${response.status}, delivered_at = now() where id = ${deliveryId} and workspace_id = ${job.workspace_id}`;
+  const target = await validateOutboundUrl(String(row.endpoint));
+  const response = await deliverForwardingHttp(target, {
+    headers: {
+      "content-type": "application/json",
+      "x-mayi-delivery-id": deliveryId,
+      "x-mayi-signature": await signWebhook(payload),
+      "user-agent": "MayI-Webhook/1",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (response.status < 200 || response.status >= 300) throw new Error(`Webhook returned ${response.status}`);
+  return { deliveryId, responseCode: response.status };
 }
 
-async function email(job: Job): Promise<void> {
+async function email(job: Job): Promise<NonCallbackJobResult> {
   const { approvalId, destinationId, deliveryId } = job.payload;
   if (!approvalId || !destinationId || !deliveryId || !process.env.EMAIL_API_URL || !process.env.EMAIL_API_KEY) throw new Error("Email delivery is not configured");
   const rows = await database().sql`
@@ -71,11 +118,11 @@ async function email(job: Job): Promise<void> {
     where d.id = ${destinationId} and d.workspace_id = ${job.workspace_id} and d.type = 'EMAIL' and d.active and d.verified_at is not null
   `;
   const row = rows[0]; if (!row) throw new Error("Email destination no longer exists"); const action = Action.parse(row.action);
-  const response = await fetch(process.env.EMAIL_API_URL, { method: "POST", headers: { authorization: `Bearer ${process.env.EMAIL_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({
+  const response = await deliverProviderRequest(process.env.EMAIL_API_URL, { method: "POST", headers: { authorization: `Bearer ${process.env.EMAIL_API_KEY}`, "content-type": "application/json", "idempotency-key": deliveryId }, body: JSON.stringify({
     to: row.endpoint, subject: "May I? approval requested", text: `An agent requested approval for ${actionName(action)}. Review it securely: ${process.env.PUBLIC_ORIGIN}/?approval=${approvalId}\nExpires: ${new Date(row.expires_at as Date).toISOString()}`,
   }) });
   if (!response.ok) throw new Error(`Email provider returned ${response.status}`);
-  await database().sql`update forwarding_deliveries set state = 'DELIVERED', response_code = ${response.status}, delivered_at = now() where id = ${deliveryId} and workspace_id = ${job.workspace_id}`;
+  return { deliveryId, responseCode: response.status };
 }
 
 export default defineEventHandler(async (event) => {
@@ -102,32 +149,31 @@ export default defineEventHandler(async (event) => {
   let processed = 0;
   for (; processed < 25; processed++) {
     const job = await claimNextJob(); if (!job) break;
+    let completed: boolean;
     try {
-      let completed = true;
       if (job.type === CALLBACK_JOB_TYPE) {
         await sendApprovalCallback(job);
         completed = await markCallbackDelivered(job);
-      } else if (job.type === "push.approval_pending") await push(job);
-      else if (job.type === "webhook.approval_pending") await webhook(job);
-      else if (job.type === "email.approval_pending") await email(job);
-      else throw new Error("Unknown job type");
-      if (job.type !== CALLBACK_JOB_TYPE) {
-        await database().sql`update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null, lease_token = null, last_error = null where id = ${job.id}`;
-      }
-      if (completed) {
-        await audit({ workspaceId: job.workspace_id, actorType: "system", eventType: "job.succeeded", subjectType: "job", subjectId: job.id, metadata: { type: job.type } });
+      } else {
+        let result: NonCallbackJobResult = {};
+        if (job.type === "push.approval_pending") await push(job);
+        else if (job.type === "webhook.approval_pending") result = await webhook(job);
+        else if (job.type === "email.approval_pending") result = await email(job);
+        else throw new Error("Unknown job type");
+        completed = await markOutboxJobSucceeded(job, result);
       }
     } catch (error) {
       if (job.type === CALLBACK_JOB_TYPE) {
         await markCallbackFailed(job, error);
       } else {
-        const message = error instanceof Error ? error.message.slice(0, 500) : "Job failed";
-        if (job.attempts >= 10) {
-          await database().sql`update jobs set state = 'DEAD_LETTER', locked_at = null, lease_token = null, completed_at = now(), last_error = ${message} where id = ${job.id}`;
-        } else {
-          await database().sql`update jobs set state = 'FAILED', locked_at = null, lease_token = null, last_error = ${message}, available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5)) where id = ${job.id}`;
-        }
+        await markOutboxJobFailed(job, error);
       }
+      continue;
+    }
+    if (completed) {
+      // Delivery is already durably complete. Audit outages must not reclassify
+      // the job and cause a duplicate external side effect.
+      await auditJobSucceeded(job);
     }
   }
   return { cleanedArtefacts, expired, processed };

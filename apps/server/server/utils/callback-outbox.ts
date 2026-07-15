@@ -1,4 +1,10 @@
-import { ApprovalResolvedEvent, canonicalize, createId, type ApprovalResolvedEvent as ApprovalResolvedEventType } from "@mayi/contracts";
+import {
+  ApprovalResolvedEvent,
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+  canonicalize,
+  createId,
+  type ApprovalResolvedEvent as ApprovalResolvedEventType,
+} from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
 import type { Sql, TransactionSql } from "postgres";
 import type { ClientRequest, IncomingMessage } from "node:http";
@@ -8,7 +14,8 @@ import { signWebhook } from "./forwarding";
 import { database } from "./runtime";
 
 export const CALLBACK_JOB_TYPE = "callback.approval_resolved";
-export const CALLBACK_MAX_ATTEMPTS = 10;
+export const OUTBOX_MAX_ATTEMPTS = 10;
+export const CALLBACK_MAX_ATTEMPTS = OUTBOX_MAX_ATTEMPTS;
 export const CALLBACK_LEASE_SECONDS = 5 * 60;
 export const CALLBACK_CONNECT_TIMEOUT_MS = 3_000;
 export const CALLBACK_RESPONSE_TIMEOUT_MS = 5_000;
@@ -57,6 +64,11 @@ export type CallbackDeliveryDependencies = {
 type CallbackMutationDependencies = {
   sql?: Sql;
   random?: () => number;
+};
+
+export type NonCallbackJobResult = {
+  deliveryId?: string;
+  responseCode?: number;
 };
 
 export class CallbackDeliveryError extends Error {
@@ -121,13 +133,13 @@ export async function claimNextJob(
     await tx`
       update jobs set state = 'DEAD_LETTER', locked_at = null,
         lease_token = null, completed_at = now(), last_error = 'lease_exhausted'
-      where state = 'RUNNING' and attempts >= ${CALLBACK_MAX_ATTEMPTS}
+      where state = 'RUNNING' and attempts >= ${OUTBOX_MAX_ATTEMPTS}
         and coalesce(locked_at, '-infinity'::timestamptz) <= now() - make_interval(secs => ${CALLBACK_LEASE_SECONDS})
     `;
     const rows = await tx`
       select id, workspace_id, type, payload, attempts from jobs
       where (${options.jobId ?? null}::mayi_id is null or id = ${options.jobId ?? null}::mayi_id)
-        and attempts < ${CALLBACK_MAX_ATTEMPTS} and (
+        and attempts < ${OUTBOX_MAX_ATTEMPTS} and (
         (state in ('READY', 'FAILED') and available_at <= now())
         or (state = 'RUNNING' and coalesce(locked_at, '-infinity'::timestamptz) <= now() - make_interval(secs => ${CALLBACK_LEASE_SECONDS}))
       )
@@ -378,13 +390,17 @@ export function callbackRetryDelaySeconds(attempt: number, random = Math.random)
   return CALLBACK_RETRY_BASE_SECONDS * 2 ** (attempt - 1) * (0.5 + random());
 }
 
-async function lockCurrentCallbackLease(tx: TransactionSql, job: OutboxJob): Promise<boolean> {
+async function lockCurrentJobLease(tx: TransactionSql, job: OutboxJob): Promise<boolean> {
   const currentJob = await tx`
     select id from jobs where id = ${job.id} and state = 'RUNNING'
       and attempts = ${job.attempts} and lease_token = ${job.lease_token}
     for update
   `;
-  if (!currentJob[0]) return false;
+  return Boolean(currentJob[0]);
+}
+
+async function lockCurrentCallbackLease(tx: TransactionSql, job: OutboxJob): Promise<boolean> {
+  if (!await lockCurrentJobLease(tx, job)) return false;
   const currentCallback = await tx`
     select id from approval_callbacks where id = ${job.payload.callbackId!}
       and workspace_id = ${job.workspace_id} and delivery_status = 'RUNNING'
@@ -392,6 +408,65 @@ async function lockCurrentCallbackLease(tx: TransactionSql, job: OutboxJob): Pro
     for update
   `;
   return Boolean(currentCallback[0]);
+}
+
+/** Completes a non-callback attempt only while its exact lease is current. */
+export async function markOutboxJobSucceeded(
+  job: OutboxJob,
+  result: NonCallbackJobResult = {},
+  sql: Sql = database().sql,
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    if (!await lockCurrentJobLease(tx, job)) return false;
+    if (result.deliveryId) {
+      const deliveries = await tx`
+        update forwarding_deliveries set state = 'DELIVERED', response_code = ${result.responseCode ?? null},
+          delivered_at = now()
+        where id = ${result.deliveryId} and workspace_id = ${job.workspace_id}
+        returning id
+      `;
+      if (!deliveries[0]) throw new Error("Forwarding delivery is missing");
+    }
+    const completed = await tx`
+      update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null,
+        lease_token = null, last_error = null
+      where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+        and lease_token = ${job.lease_token}
+      returning id
+    `;
+    return Boolean(completed[0]);
+  });
+}
+
+/** Fails a non-callback attempt only while its exact lease is current. */
+export async function markOutboxJobFailed(
+  job: OutboxJob,
+  error: unknown,
+  sql: Sql = database().sql,
+): Promise<"retry" | "dead_letter" | "stale"> {
+  const message = error instanceof Error ? error.message.slice(0, 500) : "Job failed";
+  const retry = job.attempts < OUTBOX_MAX_ATTEMPTS;
+  return sql.begin(async (tx) => {
+    if (!await lockCurrentJobLease(tx, job)) return "stale" as const;
+    const rows = retry
+      ? await tx`
+        update jobs set state = 'FAILED', locked_at = null, lease_token = null,
+          last_error = ${message},
+          available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5))
+        where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+          and lease_token = ${job.lease_token}
+        returning id
+      `
+      : await tx`
+        update jobs set state = 'DEAD_LETTER', locked_at = null, lease_token = null,
+          completed_at = now(), last_error = ${message}
+        where id = ${job.id} and state = 'RUNNING' and attempts = ${job.attempts}
+          and lease_token = ${job.lease_token}
+        returning id
+      `;
+    if (!rows[0]) return "stale" as const;
+    return retry ? "retry" as const : "dead_letter" as const;
+  });
 }
 
 export async function markCallbackDelivered(job: OutboxJob, sql: Sql = database().sql): Promise<boolean> {
@@ -460,6 +535,18 @@ export async function replayDeadLetterCallback(
   sql: Sql = database().sql,
 ): Promise<{ id: string; status: "READY" }> {
   return sql.begin(async (tx) => {
+    const [current] = await tx`
+      select id, delivery_status,
+        occurred_at >= now() - make_interval(secs => ${CALLBACK_ACCEPTANCE_WINDOW_SECONDS}) as replayable
+      from approval_callbacks where id = ${callbackId}
+      for update
+    `;
+    if (!current || current.delivery_status !== "DEAD_LETTER") {
+      throw new CallbackDeliveryError("callback_not_dead_lettered", false);
+    }
+    if (!current.replayable) {
+      throw new CallbackDeliveryError("callback_replay_window_expired", false);
+    }
     const rows = await tx`
       update approval_callbacks set delivery_status = 'READY', attempts = 0,
         next_attempt_at = now(), lease_expires_at = null, last_error = null,

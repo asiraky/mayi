@@ -1,4 +1,5 @@
-import type { Artefact } from "@mayi/contracts";
+import { sha256, type Artefact } from "@mayi/contracts";
+import type { ObjectStore } from "@mayi/storage";
 
 export const ARTEFACT_MEDIA_TYPES = [
   "application/pdf",
@@ -45,4 +46,27 @@ export function detectArtefactMediaType(bytes: Uint8Array): ArtefactMediaType | 
     && bytes[11] === 0x50
   ) return "image/webp";
   return undefined;
+}
+
+export type StoredArtefactExpectation = {
+  objectKey: string;
+  mediaType: ArtefactMediaType;
+  size: number;
+  sha256: string;
+};
+
+/** Verifies immutable storage before an upload replay or final approval claim trusts its row. */
+export async function storedArtefactMatches(
+  store: ObjectStore,
+  expected: StoredArtefactExpectation,
+): Promise<boolean> {
+  try {
+    const stored = await store.get(expected.objectKey);
+    return stored.bytes.byteLength === expected.size
+      && detectArtefactMediaType(stored.bytes) === expected.mediaType
+      && (stored.mediaType === undefined || stored.mediaType === expected.mediaType)
+      && await sha256(stored.bytes) === expected.sha256;
+  } catch {
+    return false;
+  }
 }

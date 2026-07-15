@@ -1,6 +1,6 @@
 {
-  "id": "a518b84e-cd12-4c23-8e05-1d436fa3bc27",
-  "prevId": "dfb60713-bef4-4bfe-8d51-943cc0de326a",
+  "id": "32dfc099-6628-4834-acd4-e4462b4a8f17",
+  "prevId": "720e6941-214f-4957-afce-2637212680b9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -887,7 +887,7 @@
       "checkConstraints": {
         "artefacts_state_check": {
           "name": "artefacts_state_check",
-          "value": "\"artefacts\".\"state\" IN ('UPLOADING', 'READY')"
+          "value": "\"artefacts\".\"state\" IN ('UPLOADING', 'READY', 'DELETING')"
         },
         "artefacts_upload_ordinal_check": {
           "name": "artefacts_upload_ordinal_check",
@@ -895,7 +895,7 @@
         },
         "artefacts_staging_check": {
           "name": "artefacts_staging_check",
-          "value": "\n    (\"artefacts\".\"request_key\" IS NULL AND \"artefacts\".\"approval_id\" IS NOT NULL)\n    OR\n    (\"artefacts\".\"request_key\" IS NOT NULL AND \"artefacts\".\"agent_id\" IS NOT NULL AND \"artefacts\".\"upload_ordinal\" IS NOT NULL AND \"artefacts\".\"upload_payload_hash\" IS NOT NULL AND \"artefacts\".\"expires_at\" IS NOT NULL)\n  "
+          "value": "\n    (\"artefacts\".\"request_key\" IS NULL AND \"artefacts\".\"approval_id\" IS NOT NULL)\n    OR\n    (\"artefacts\".\"request_key\" IS NOT NULL AND \"artefacts\".\"agent_id\" IS NOT NULL AND \"artefacts\".\"upload_ordinal\" IS NOT NULL AND \"artefacts\".\"upload_payload_hash\" IS NOT NULL AND \"artefacts\".\"expires_at\" IS NOT NULL\n      AND (\"artefacts\".\"state\" <> 'DELETING' OR \"artefacts\".\"approval_id\" IS NULL))\n  "
         }
       },
       "isRLSEnabled": false
@@ -2240,6 +2240,67 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.oauth_registration_attempts": {
+      "name": "oauth_registration_attempts",
+      "schema": "",
+      "columns": {
+        "identity_hash": {
+          "name": "identity_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "window_started_at": {
+          "name": "window_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "last_attempt_at": {
+          "name": "last_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "oauth_registration_attempts_last_attempt_idx": {
+          "name": "oauth_registration_attempts_last_attempt_idx",
+          "columns": [
+            {
+              "expression": "last_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "oauth_registration_attempts_count_check": {
+          "name": "oauth_registration_attempts_count_check",
+          "value": "\"oauth_registration_attempts\".\"attempts\" BETWEEN 1 AND 31"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.receipts": {

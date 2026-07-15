@@ -1,4 +1,4 @@
-import { canonicalize, createId } from "@mayi/contracts";
+import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, canonicalize, createId } from "@mayi/contracts";
 import { createCallbackStateCodec } from "@mayi/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mayiChannel } from "../../../../packages/eve/src/channel";
@@ -32,7 +32,7 @@ describe("production server to Eve approval resume", () => {
     const clock = Date.now();
     const callbackStateCodec = await createCallbackStateCodec({
       currentKey: { kid: "eve-state-integration", key: new Uint8Array(32).fill(19) },
-      maximumRetryWindowSeconds: 3_833,
+      maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
       now: () => clock,
     });
     const rawContinuationToken = "mayi:production-handshake-raw-token";

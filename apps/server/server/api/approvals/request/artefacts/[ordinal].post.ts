@@ -1,12 +1,13 @@
 import { canonicalDigest, createId, sha256 } from "@mayi/contracts";
-import { createError, defineEventHandler, getHeader, getRouterParam, readRawBody } from "h3";
+import { createError, defineEventHandler, getHeader, getRouterParam } from "h3";
 import { requireAgent } from "../../../../utils/auth";
-import { requireIdempotencyKey } from "../../../../utils/http";
+import { readBoundedBody, requireIdempotencyKey } from "../../../../utils/http";
 import { database, objects } from "../../../../utils/runtime";
 import {
   ARTEFACT_MEDIA_TYPES,
   MAX_ARTEFACT_BYTES,
   detectArtefactMediaType,
+  storedArtefactMatches,
   type ArtefactMediaType,
 } from "../../../../utils/artefacts";
 
@@ -34,11 +35,7 @@ export default defineEventHandler(async (event) => {
   if (!ARTEFACT_MEDIA_TYPES.includes(declaredMediaType)) {
     throw createError({ statusCode: 415, statusMessage: "Only PDF, PNG, JPEG, and WebP evidence is accepted" });
   }
-  const declaredSize = Number(getHeader(event, "content-length") ?? 0);
-  if (declaredSize > MAX_ARTEFACT_BYTES) {
-    throw createError({ statusCode: 413, statusMessage: "Artefact exceeds 25 MiB" });
-  }
-  const body = await readRawBody(event, false);
+  const body = await readBoundedBody(event, MAX_ARTEFACT_BYTES, "Artefact exceeds 25 MiB");
   if (!body?.byteLength || body.byteLength > MAX_ARTEFACT_BYTES) {
     throw createError({ statusCode: 413, statusMessage: "Artefact is empty or exceeds 25 MiB" });
   }
@@ -67,7 +64,8 @@ export default defineEventHandler(async (event) => {
     const lockKey = `${auth.workspaceId}:${auth.agentId}:approval.request.artefact:${requestKey}:${ordinal}`;
     await sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
     const [existing] = await sql`
-      select id, object_key, filename, media_type, size, sha256, state, upload_payload_hash
+      select id, object_key, filename, media_type, size, sha256, state, upload_payload_hash,
+        expires_at > now() as unexpired
       from artefacts
       where workspace_id = ${auth.workspaceId}
         and agent_id = ${auth.agentId}
@@ -76,6 +74,9 @@ export default defineEventHandler(async (event) => {
       for update
     `;
     if (existing) {
+      if (existing.state === "DELETING" || existing.unexpired !== true) {
+        throw createError({ statusCode: 409, statusMessage: "The staged artefact upload has expired" });
+      }
       if (existing.upload_payload_hash !== payloadHash) {
         throw createError({ statusCode: 409, statusMessage: "Idempotency key and ordinal were reused with different artefact content" });
       }
@@ -98,25 +99,37 @@ export default defineEventHandler(async (event) => {
     return created!;
   });
 
-  if (reservation.state !== "READY") {
-    const objectKey = String(reservation.object_key);
-    const result = await objects().putIfAbsent(objectKey, body, mediaType);
-    if (result === "exists") {
-      const stored = await objects().get(objectKey);
-      const storedDigest = await sha256(stored.bytes);
-      if (
-        stored.bytes.byteLength !== body.byteLength
-        || storedDigest !== digest
-        || (stored.mediaType !== undefined && stored.mediaType !== mediaType)
-      ) {
-        throw createError({ statusCode: 409, statusMessage: "The reserved artefact object does not match this upload" });
-      }
+  const objectKey = String(reservation.object_key);
+  const store = objects();
+  const result = await store.putIfAbsent(objectKey, body, mediaType);
+  if (result === "exists") {
+    if (!await storedArtefactMatches(store, {
+      objectKey,
+      mediaType,
+      size: body.byteLength,
+      sha256: digest,
+    })) {
+      throw createError({ statusCode: 409, statusMessage: "The reserved artefact object does not match this upload" });
     }
-    await database().sql`
-      update artefacts set state = 'READY'
-      where id = ${reservation.id} and upload_payload_hash = ${payloadHash} and state = 'UPLOADING'
-    `;
   }
+  await database().sql.begin(async (sql) => {
+    const [current] = await sql`
+      select state, expires_at > now() as unexpired from artefacts
+      where id = ${reservation.id} and upload_payload_hash = ${payloadHash}
+      for update
+    `;
+    if (!current || current.state === "DELETING" || current.unexpired !== true) {
+      throw createError({ statusCode: 409, statusMessage: "The staged artefact upload has expired" });
+    }
+    if (current.state === "UPLOADING") {
+      await sql`
+        update artefacts set state = 'READY'
+        where id = ${reservation.id} and upload_payload_hash = ${payloadHash} and state = 'UPLOADING'
+      `;
+    } else if (current.state !== "READY") {
+      throw createError({ statusCode: 409, statusMessage: "The staged artefact upload is unavailable" });
+    }
+  });
 
   return {
     id: String(reservation.id),

@@ -10,7 +10,10 @@ import { relativeTime } from "~/lib/format";
 import { ApprovalDetail } from "~/screens/approval-detail";
 import { Auth } from "~/screens/auth";
 
-const api = new MayiClient({ origin: location.origin });
+const api = new MayiClient({
+  origin: location.origin,
+  dangerouslyAllowInsecureHttpForDevelopment: import.meta.env.DEV,
+});
 
 const TABS = ["inbox", "history", "agents", "activity"] as const;
 type Tab = (typeof TABS)[number];

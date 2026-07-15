@@ -1,5 +1,6 @@
 import {
   MAYI_SIGNATURE_HEADER,
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
   createCallbackStateCodec,
   createWebhookVerifier,
   type CallbackStateCodec,
@@ -8,7 +9,9 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { canonicalize } from "../../contracts/src/canonical";
 import { createId } from "../../contracts/src/id";
 import {
+  MAX_CALLBACK_BODY_BYTES,
   mayiChannel,
+  readCallbackBody,
   type MayiChannelState,
   type MayiContinuationStateV1,
   type MayiWebhookEventStore,
@@ -79,7 +82,7 @@ beforeAll(async () => {
 async function realCodec(key = stateKey, kid = "callback-state-key", codecNow = now) {
   return createCallbackStateCodec({
     currentKey: { kid, key },
-    maximumRetryWindowSeconds: 3_833,
+    maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
     now: () => codecNow,
   });
 }
@@ -180,6 +183,53 @@ function acceptedSession(sessionId = "session-original") {
 }
 
 describe("approval-resolved callback", () => {
+  it("reads a callback body at the streaming limit", async () => {
+    const body = "x".repeat(MAX_CALLBACK_BODY_BYTES);
+    await expect(readCallbackBody(new Request("https://agent.example/callback", {
+      method: "POST",
+      body,
+    }))).resolves.toBe(body);
+  });
+
+  it("cancels a chunked callback body immediately after it crosses the limit", async () => {
+    const cancelled = vi.fn();
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent) return;
+        sent = true;
+        controller.enqueue(new Uint8Array(MAX_CALLBACK_BODY_BYTES));
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel: cancelled,
+    });
+    const request = new Request("https://agent.example/callback", {
+      method: "POST",
+      body,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    await expect(readCallbackBody(request)).rejects.toThrow("Invalid callback request");
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it("rejects oversized declared callback bodies before reading and cannot be bypassed by a false small length", async () => {
+    const getReader = vi.fn();
+    const declared = {
+      headers: new Headers({ "content-length": String(MAX_CALLBACK_BODY_BYTES + 1) }),
+      body: { getReader },
+    } as unknown as Request;
+    await expect(readCallbackBody(declared)).rejects.toThrow("Invalid callback request");
+    expect(getReader).not.toHaveBeenCalled();
+
+    const actual = new Request("https://agent.example/callback", {
+      method: "POST",
+      headers: { "content-length": "1" },
+      body: new Uint8Array(MAX_CALLBACK_BODY_BYTES + 1) as unknown as BodyInit,
+    });
+    await expect(readCallbackBody(actual)).rejects.toThrow("Invalid callback request");
+  });
+
   it("uses verifier-compatible Ed25519 fixtures", async () => {
     const event = callbackEvent("opaque-state");
     const verifier = createWebhookVerifier({
@@ -190,6 +240,22 @@ describe("approval-resolved callback", () => {
     });
     await expect(verifier.verify({ body: canonicalize(event), signature: await sign(event) }))
       .resolves.toMatchObject({ duplicate: false, event: { id: event.id } });
+  });
+
+  it("accepts a stable manual replay inside the shared recovery window", async () => {
+    const codec = await realCodec();
+    const state = await sealedState(codec);
+    const event = callbackEvent(state, "approved", {
+      occurredAt: new Date(now - (CALLBACK_ACCEPTANCE_WINDOW_SECONDS - 60) * 1_000).toISOString(),
+    });
+    const send = vi.fn(async () => acceptedSession());
+
+    const response = await callbackRoute({ callbackStateCodec: codec })(
+      await callbackRequest(event),
+      routeArgs(send) as never,
+    );
+    expect(response.status).toBe(202);
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -344,7 +410,7 @@ describe("approval-resolved callback", () => {
     const event = callbackEvent(state);
     const validSignature = await sign(event);
     const stale = callbackEvent(state, "approved", {
-      occurredAt: new Date(now - 4 * 60 * 60 * 1_000).toISOString(),
+      occurredAt: new Date(now - (CALLBACK_ACCEPTANCE_WINDOW_SECONDS + 60) * 1_000).toISOString(),
     });
     const bodyMismatch = canonicalize({ ...event, state: `${state}-changed` });
     const validParts = validSignature.split(".");

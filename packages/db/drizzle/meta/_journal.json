@@ -57,6 +57,20 @@
       "when": 1784119510422,
       "tag": "0007_staged_request_artefacts",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784123338354,
+      "tag": "0008_staged_artefact_cleanup",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784123673873,
+      "tag": "0009_oauth_registration_attempts",
+      "breakpoints": true
     }
   ]
 }

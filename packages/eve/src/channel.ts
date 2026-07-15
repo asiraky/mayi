@@ -1,6 +1,8 @@
 import {
   CallbackStateError,
+  CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
   MAYI_SIGNATURE_HEADER,
+  MAX_WEBHOOK_BODY_BYTES,
   MayiClient,
   WebhookConfigurationError,
   WebhookVerificationError,
@@ -34,8 +36,6 @@ import {
 
 const DEFAULT_MAYI_ORIGIN = "https://app.mayi.sh";
 const DEFAULT_APPROVAL_EXPIRES_IN_SECONDS = 60 * 60;
-// The Mayi callback outbox's maximum exponential-backoff window is 3,832.5s.
-const CALLBACK_MAX_RETRY_WINDOW_SECONDS = 3_833;
 const MAYI_USER_ID_PATTERN = /^[A-Za-z]{12}$/;
 const MAX_CONTINUATION_TOKEN_LENGTH = 4_096;
 const MAX_CORRELATION_ID_LENGTH = 512;
@@ -44,6 +44,7 @@ const ACCEPTANCE_RECONCILIATION_TIMEOUT_MS = 2_000;
 const DEFAULT_ARTEFACT_TIMEOUT_MS = 30_000;
 const MAX_ARTEFACTS = 20;
 const ARTEFACT_CONCURRENCY = 3;
+export const MAX_CALLBACK_BODY_BYTES = MAX_WEBHOOK_BODY_BYTES;
 
 export interface MayiReceiveTarget {
   /** Mayi user to suggest as the approver for approvals started by this session. */
@@ -241,7 +242,7 @@ async function callbackStateCodecFromEnvironment(environment: MayiEnvironment): 
     return await createCallbackStateCodec({
       currentKey: { kid, key },
       previousKeys: parsePreviousKeys(environment.MAYI_CALLBACK_STATE_PREVIOUS_KEYS),
-      maximumRetryWindowSeconds: CALLBACK_MAX_RETRY_WINDOW_SECONDS,
+      maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
     });
   } catch (error) {
     if (error instanceof MayiEveConfigurationError) throw error;
@@ -318,7 +319,7 @@ export function createRuntime(
     verifier() {
       verifier ??= createWebhookVerifier({
         mayiOrigin,
-        maximumEventAgeSeconds: CALLBACK_MAX_RETRY_WINDOW_SECONDS,
+        maximumEventAgeSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
         now: dependencies.now ?? Date.now,
         ...(config.webhookFetch === undefined ? {} : { fetch: config.webhookFetch }),
         ...(config.eventStore === undefined ? {} : { isProcessed: config.eventStore.isProcessed }),
@@ -368,7 +369,7 @@ async function submitOneRequest(
     const now = runtime.now();
     const approvalExpiresAt = new Date(now + runtime.expiresInSeconds * 1_000).toISOString();
     const stateExpiresAt = new Date(
-      now + (runtime.expiresInSeconds + CALLBACK_MAX_RETRY_WINDOW_SECONDS) * 1_000,
+      now + (runtime.expiresInSeconds + CALLBACK_ACCEPTANCE_WINDOW_SECONDS) * 1_000,
     ).toISOString();
     const codec = await runtime.codec();
     const state = await codec.seal({
@@ -480,6 +481,44 @@ function genericResponse(status: number, message: string): Response {
   });
 }
 
+export async function readCallbackBody(request: Request): Promise<string> {
+  const contentLength = request.headers.get("content-length");
+  if (
+    contentLength !== null
+    && (!/^\d+$/.test(contentLength) || Number(contentLength) > MAX_CALLBACK_BODY_BYTES)
+  ) throw new Error("Invalid callback request");
+  if (!request.body) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > MAX_CALLBACK_BODY_BYTES) {
+        await reader.cancel();
+        throw new Error("Invalid callback request");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("Invalid callback request");
+  }
+}
+
 function validBoundedString(value: unknown, maximumLength: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximumLength;
 }
@@ -582,7 +621,7 @@ export function createApprovalResolvedHandler(runtime: MayiChannelRuntime) {
   ): Promise<Response> => {
     let body: string;
     try {
-      body = await request.text();
+      body = await readCallbackBody(request);
     } catch {
       return genericResponse(400, "Invalid callback request");
     }

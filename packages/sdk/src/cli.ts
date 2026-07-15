@@ -2,10 +2,11 @@
 import { MayiClient, type Approval } from "./index";
 
 const [command, id] = process.argv.slice(2);
-const origin = process.env.MAYI_URL ?? "http://localhost:3000";
+const origin = process.env.MAYI_URL ?? "https://app.mayi.sh";
 if (!process.env.MAYI_ACCESS_TOKEN) { console.error("MAYI_ACCESS_TOKEN is required"); process.exit(2); }
 const client = new MayiClient({
   origin,
+  dangerouslyAllowInsecureHttpForDevelopment: process.env.MAYI_ALLOW_INSECURE_LOOPBACK === "true",
   getAccessToken: async () => process.env.MAYI_ACCESS_TOKEN ?? "",
 });
 

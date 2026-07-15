@@ -187,6 +187,10 @@ acknowledge before Eve accepts. Eve's continuation fence and event stream let
 the adapter recognize an already-accepted resume, so retrying the same stable
 event ID cannot execute the tool twice. Verification, decryption, or resume
 failures return a non-`2xx` response so Mayi continues its durable retry policy.
+The signed event and encrypted callback state remain acceptable for seven days
+after resolution. Manual replay keeps the original event ID and occurrence time,
+so operators must replay a dead letter within that window and consumers retain
+the same duplicate-safety identity.
 
 Hosts that already have a durable event store may pass `eventStore` with
 `isProcessed(eventId)` and `markProcessed(eventId)` methods. The duplicate check
@@ -214,8 +218,9 @@ The deployment host provisions:
 
 Keep callback-state keys stable across process restarts and deploys. Rotate by
 installing a new current key and retaining the old key in
-`MAYI_CALLBACK_STATE_PREVIOUS_KEYS` until its approvals and maximum callback
-retry window have elapsed. Never derive these keys from OAuth credentials.
+`MAYI_CALLBACK_STATE_PREVIOUS_KEYS` until its approvals and the seven-day
+callback acceptance window have elapsed. Never derive these keys from OAuth
+credentials.
 
 For local development, pass a public HTTPS tunnel origin as `publicOrigin` to
 `mayiChannel()`, and register the resulting callback URL on the development
@@ -238,7 +243,7 @@ receipts, or sensitive tool input.
   development and register its exact callback on a development OAuth client.
   Tunnel rotation requires updating that development registration.
 - **State rotation:** install a new callback-state key and retain old decrypt-only
-  keys until every outstanding approval plus Mayi's maximum retry window has
+  keys until every outstanding approval plus Mayi's seven-day acceptance window has
   elapsed. Unknown, tampered, expired, or wrong-key state fails closed.
 - **Signing rotation:** Mayi publishes current and retained Ed25519 public keys at
   `/.well-known/jwks.json`. Keep old signing public keys available through the
