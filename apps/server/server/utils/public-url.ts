@@ -65,10 +65,10 @@ const IPV4_NON_PUBLIC_CIDRS: ReadonlyArray<readonly [number, number]> = [
 ];
 
 const IPV6_NON_PUBLIC_CIDRS: ReadonlyArray<readonly [bigint, number]> = [
-  [0x20010000000000000000000000000000n, 23], // IETF protocol assignments
-  [0x20010db8000000000000000000000000n, 32], // documentation
-  [0x20020000000000000000000000000000n, 16], // 6to4 (can tunnel private IPv4)
-  [0x3fff0000000000000000000000000000n, 20], // documentation
+  [BigInt("0x20010000000000000000000000000000"), 23], // IETF protocol assignments
+  [BigInt("0x20010db8000000000000000000000000"), 32], // documentation
+  [BigInt("0x20020000000000000000000000000000"), 16], // 6to4 (can tunnel private IPv4)
+  [BigInt("0x3fff0000000000000000000000000000"), 20], // documentation
 ];
 
 function inIpv4Cidr(address: number, network: number, prefixLength: number): boolean {
@@ -113,7 +113,7 @@ function parseIpv6(address: string): bigint | undefined {
   const groups = [...left, ...Array<string>(omitted).fill("0"), ...right];
   if (groups.length !== 8) return undefined;
 
-  return groups.reduce((value, group) => (value << 16n) | BigInt(`0x${group}`), 0n);
+  return groups.reduce((value, group) => (value << BigInt(16)) | BigInt(`0x${group}`), BigInt(0));
 }
 
 function inIpv6Cidr(address: bigint, network: bigint, prefixLength: number): boolean {
@@ -135,7 +135,7 @@ export function isPublicIpAddress(address: string): boolean {
 
     // Globally routable unicast space is 2000::/3. Explicit exclusions cover
     // special-use ranges that sit inside it.
-    const globalUnicast = inIpv6Cidr(value, 0x20000000000000000000000000000000n, 3);
+    const globalUnicast = inIpv6Cidr(value, BigInt("0x20000000000000000000000000000000"), 3);
     return globalUnicast && !IPV6_NON_PUBLIC_CIDRS.some(([network, prefix]) => inIpv6Cidr(value, network, prefix));
   }
 

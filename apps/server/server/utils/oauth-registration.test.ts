@@ -4,8 +4,8 @@ import {
   OAUTH_REGISTRATION_LIMITS,
   parseAndValidateRegistration,
   validateRedirectUri,
-} from "./register.post";
-import type { PublicUrlResolver } from "../../utils/public-url";
+} from "../api/oauth/register.post";
+import type { PublicUrlResolver } from "./public-url";
 
 const publicDns: PublicUrlResolver = async () => ["203.1.1.10"];
 
