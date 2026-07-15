@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
   const input = await bodyAs(event, Consume);
   const unverified = JSON.parse(Buffer.from(input.receipt.split(".")[1] ?? "", "base64url").toString()) as { aud?: string; jti?: string };
   const audience = typeof unverified.aud === "string" ? unverified.aud : "";
-  let consumers: Record<string, string> = {};
+  let consumers: Record<string, string>;
   try { consumers = JSON.parse(process.env.CONSUMER_API_KEYS ?? "{}"); } catch { throw createError({ statusCode: 500, statusMessage: "Consumer configuration is invalid" }); }
   const supplied = getHeader(event, "x-consumer-key") ?? "";
   if (!consumers[audience] || !timingSafeEqual(consumers[audience], supplied)) throw createError({ statusCode: 401, statusMessage: "Relying-party authentication failed" });
