@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mayi/sdk": "workspace:^"
+    "@mayi/sdk": "workspace:^0.1.0"
   },
   "peerDependencies": {
     "eve": "0.24.2"
