@@ -17,6 +17,7 @@ const MAX_CACHE_TTL_SECONDS = 60 * 60;
 const MAX_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_EVENT_AGE_SECONDS = 7 * 24 * 60 * 60;
 const MAX_CLOCK_TOLERANCE_SECONDS = 5 * 60;
+const UNKNOWN_KEY_REFRESH_COOLDOWN_MS = 60 * 1_000;
 const KID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
 export type WebhookVerifierFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -328,6 +329,7 @@ export function createWebhookVerifier(options: WebhookVerifierOptions): WebhookV
   const now = options.now ?? Date.now;
   let cache: CachedKeys | undefined;
   let refresh: Promise<CachedKeys> | undefined;
+  let lastUnknownKeyRefreshAt: number | undefined;
 
   async function refreshKeys(): Promise<CachedKeys> {
     if (refresh) return refresh;
@@ -361,12 +363,22 @@ export function createWebhookVerifier(options: WebhookVerifierOptions): WebhookV
   }
 
   async function keyFor(kid: string): Promise<CryptoKey> {
-    const usedFreshCache = Boolean(cache && cache.expiresAt > now());
+    const checkedAt = now();
+    const usedFreshCache = Boolean(cache && cache.expiresAt > checkedAt);
     let current = usedFreshCache ? cache! : await refreshKeys();
     let key = current.keys.get(kid);
     if (!key && usedFreshCache) {
+      if (
+        lastUnknownKeyRefreshAt !== undefined
+        && checkedAt - lastUnknownKeyRefreshAt < UNKNOWN_KEY_REFRESH_COOLDOWN_MS
+      ) throw new WebhookVerificationError("UNKNOWN_KEY");
+      // Account before awaiting so concurrent unknown kids cannot each start a refresh.
+      lastUnknownKeyRefreshAt = checkedAt;
       current = await refreshKeys();
       key = current.keys.get(kid);
+    } else if (!key) {
+      // The cold/expired-cache fetch already served as this unknown kid's refresh.
+      lastUnknownKeyRefreshAt = checkedAt;
     }
     if (!key) throw new WebhookVerificationError("UNKNOWN_KEY");
     return key;
@@ -446,6 +458,7 @@ export function createWebhookVerifier(options: WebhookVerifierOptions): WebhookV
         } catch {
           throw new WebhookVerificationError("DUPLICATE_CHECK_FAILED");
         }
+        if (typeof duplicate !== "boolean") throw new WebhookVerificationError("DUPLICATE_CHECK_FAILED");
         if (duplicate) return { duplicate: true, eventId: parsed.data.id };
       }
       return { duplicate: false, event: parsed.data };

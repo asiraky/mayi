@@ -155,6 +155,29 @@ describe("webhook verifier", () => {
     expect(jwksRequests).toBe(2);
   });
 
+  it("rate-limits unknown-kid refreshes and discovers rotation after the cooldown", async () => {
+    let clock = now;
+    const verifier = createWebhookVerifier(options({ cacheTtlSeconds: 600, now: () => clock }));
+    await verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent, first) });
+    expect(jwksRequests).toBe(1);
+
+    await expect(verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent, second) }))
+      .rejects.toEqual(code("UNKNOWN_KEY"));
+    expect(jwksRequests).toBe(2);
+
+    servedKeys = [first.publicJwk, second.publicJwk];
+    await expect(verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent, second) }))
+      .rejects.toEqual(code("UNKNOWN_KEY"));
+    await expect(verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent, unknown) }))
+      .rejects.toEqual(code("UNKNOWN_KEY"));
+    expect(jwksRequests).toBe(2);
+
+    clock += 60_000;
+    await expect(verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent, second) }))
+      .resolves.toMatchObject({ duplicate: false });
+    expect(jwksRequests).toBe(3);
+  });
+
   it("expires the bounded JWKS cache", async () => {
     let clock = now;
     const verifier = createWebhookVerifier(options({ cacheTtlSeconds: 1, now: () => clock }));
@@ -283,6 +306,14 @@ describe("webhook verifier", () => {
     expect(error).toMatchObject({ code: "DUPLICATE_CHECK_FAILED" });
     expect(`${(error as Error).message} ${JSON.stringify(error)}`).not.toContain(secret);
     expect(Object.keys(error as object)).not.toContain("cause");
+  });
+
+  it("fails safely when the duplicate store does not return a boolean", async () => {
+    const verifier = createWebhookVerifier(options({
+      isProcessed: async () => "yes" as unknown as boolean,
+    }));
+    await expect(verifier.verify({ body: JSON.stringify(baseEvent), signature: await sign(baseEvent) }))
+      .rejects.toEqual(code("DUPLICATE_CHECK_FAILED"));
   });
 
   it("rejects malformed or private JWKS documents", async () => {
