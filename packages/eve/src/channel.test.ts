@@ -92,7 +92,18 @@ function capturedCalls(fetchMock: ReturnType<typeof createFetchMock>) {
 }
 
 describe("mayiChannel", () => {
-  it("registers exactly the hosted callback route and leaves its resume body for PR 9", async () => {
+  it("requires both durable event-store hooks when a host opts in", () => {
+    expect(() => mayiChannel({
+      getAccessToken: async () => "token",
+      eventStore: { isProcessed: async () => false } as never,
+    })).toThrow(/both isProcessed and markProcessed/u);
+    expect(() => mayiChannel({
+      getAccessToken: async () => "token",
+      eventStore: { markProcessed: async () => undefined } as never,
+    })).toThrow(/both isProcessed and markProcessed/u);
+  });
+
+  it("registers exactly the hosted callback route and rejects unsigned callbacks", async () => {
     const channel = mayiChannel({
       getAccessToken: async () => "token",
       fetch: createFetchMock(),
@@ -106,7 +117,7 @@ describe("mayiChannel", () => {
     const response = await route.handler(new Request(`https://agent.example${MAYI_CALLBACK_PATH}`, {
       method: "POST",
     }), {} as never);
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(401);
   });
 
   it("generates and durably seeds a channel-local raw continuation token", async () => {

@@ -4,6 +4,7 @@ export {
   type MayiChannelConfig,
   type MayiChannelState,
   type MayiReceiveTarget,
+  type MayiWebhookEventStore,
 } from "./channel";
 export {
   MAYI_CALLBACK_PATH,

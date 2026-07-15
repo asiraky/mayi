@@ -130,13 +130,19 @@ try {
       mayiChannel,
       type MayiChannelConfig,
       type MayiReceiveTarget,
+      type MayiWebhookEventStore,
     } from "@mayi/eve";
     import type { Channel } from "eve/channels";
 
-    const config: MayiChannelConfig = { getAccessToken: async () => "fabricated-token" };
+    const processed = new Set();
+    const eventStore: MayiWebhookEventStore = {
+      isProcessed: async (eventId) => processed.has(eventId),
+      markProcessed: async (eventId) => { processed.add(eventId); },
+    };
+    const config: MayiChannelConfig = { getAccessToken: async () => "fabricated-token", eventStore };
     const channel: Channel<unknown, MayiReceiveTarget> = mayiChannel(config);
     const target: MayiReceiveTarget = { mayiUserId: "ApproverAbcd" };
-    void [channel, target];
+    void [channel, target, eventStore];
   `;
   await writeFile(join(fixtureDirectory, "types.ts"), typeFixture);
   await writeFile(join(fixtureDirectory, "tsconfig.json"), JSON.stringify({

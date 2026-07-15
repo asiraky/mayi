@@ -1,0 +1,9 @@
+{
+  "name": "mayi-eve-approval-harness-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "eve": "0.24.2",
+    "zod": "^4.4.3"
+  }
+}

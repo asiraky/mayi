@@ -1,16 +1,24 @@
 import {
+  CallbackStateError,
+  MAYI_SIGNATURE_HEADER,
   MayiClient,
+  WebhookConfigurationError,
+  WebhookVerificationError,
   createCallbackStateCodec,
+  createWebhookVerifier,
   type CallbackStateCodec,
   type CallbackStateKey,
   type GetAccessToken,
   type MayiFetch,
+  type WebhookVerifier,
+  type WebhookVerifierFetch,
 } from "@mayi/sdk";
 import {
   POST,
   defineChannel,
   type Channel,
   type ChannelEvents,
+  type RouteHandlerArgs,
 } from "eve/channels";
 import {
   MAYI_CALLBACK_PATH,
@@ -25,6 +33,10 @@ const DEFAULT_APPROVAL_EXPIRES_IN_SECONDS = 60 * 60;
 // The Mayi callback outbox's maximum exponential-backoff window is 3,832.5s.
 const CALLBACK_MAX_RETRY_WINDOW_SECONDS = 3_833;
 const MAYI_USER_ID_PATTERN = /^[A-Za-z]{12}$/;
+const MAX_CONTINUATION_TOKEN_LENGTH = 4_096;
+const MAX_CORRELATION_ID_LENGTH = 512;
+const MAX_EXPIRY_LENGTH = 64;
+const ACCEPTANCE_RECONCILIATION_TIMEOUT_MS = 2_000;
 
 export interface MayiReceiveTarget {
   /** Mayi user to suggest as the approver for approvals started by this session. */
@@ -45,6 +57,13 @@ export interface MayiContinuationStateV1 {
   readonly expiresAt: string;
 }
 
+export interface MayiWebhookEventStore {
+  /** Returns true only after Eve has accepted this event's resume. */
+  readonly isProcessed: (eventId: string) => boolean | Promise<boolean>;
+  /** Durably records an event after Eve has accepted its resume. */
+  readonly markProcessed: (eventId: string) => void | Promise<void>;
+}
+
 export interface MayiChannelConfig {
   readonly getAccessToken: GetAccessToken;
   /** Mayi API origin. Defaults to MAYI_ORIGIN, then https://app.mayi.sh. */
@@ -53,6 +72,10 @@ export interface MayiChannelConfig {
   readonly publicOrigin?: string;
   readonly approvalExpiresInSeconds?: number;
   readonly fetch?: MayiFetch;
+  /** Optional durable duplicate fence. Both hooks must be backed by the same store. */
+  readonly eventStore?: MayiWebhookEventStore;
+  /** Advanced host/testing injection for Mayi's public webhook JWKS request. */
+  readonly webhookFetch?: WebhookVerifierFetch;
   /** Advanced host/testing injection. Normal deployments use the host-provisioned key environment. */
   readonly callbackStateCodec?: CallbackStateCodec;
   /** Advanced host/testing injection for runtimes that do not expose process.env. */
@@ -93,9 +116,11 @@ interface MayiChannelRuntime {
   readonly client: MayiClient;
   readonly codec: () => Promise<CallbackStateCodec>;
   readonly environment: MayiEnvironment;
+  readonly eventStore?: MayiWebhookEventStore;
   readonly expiresInSeconds: number;
   readonly now: () => number;
   readonly publicOriginOverride?: string;
+  readonly verifier: () => WebhookVerifier;
 }
 
 export class UnsupportedMayiInputError extends Error {
@@ -178,16 +203,33 @@ export function createRuntime(
       "approvalExpiresInSeconds must be an integer between 60 and 604800",
     );
   }
+  if (
+    config.eventStore !== undefined
+    && (
+      !config.eventStore
+      || typeof config.eventStore !== "object"
+      || typeof config.eventStore.isProcessed !== "function"
+      || typeof config.eventStore.markProcessed !== "function"
+    )
+  ) {
+    throw new MayiEveConfigurationError(
+      "INVALID_CONFIG",
+      "eventStore must provide both isProcessed and markProcessed",
+    );
+  }
   const environment = config.environment ?? getRuntimeEnvironment();
+  const mayiOrigin = config.mayiOrigin ?? environment.MAYI_ORIGIN ?? DEFAULT_MAYI_ORIGIN;
   const client = new MayiClient({
-    origin: config.mayiOrigin ?? environment.MAYI_ORIGIN ?? DEFAULT_MAYI_ORIGIN,
+    origin: mayiOrigin,
     getAccessToken: config.getAccessToken,
     ...(config.fetch === undefined ? {} : { fetch: config.fetch }),
   });
   let codecPromise: Promise<CallbackStateCodec> | undefined;
+  let verifier: WebhookVerifier | undefined;
   return {
     client,
     environment,
+    ...(config.eventStore === undefined ? {} : { eventStore: config.eventStore }),
     expiresInSeconds,
     now: dependencies.now ?? Date.now,
     ...(config.publicOrigin === undefined ? {} : { publicOriginOverride: config.publicOrigin }),
@@ -196,6 +238,16 @@ export function createRuntime(
         ? Promise.resolve(config.callbackStateCodec)
         : callbackStateCodecFromEnvironment(environment);
       return codecPromise;
+    },
+    verifier() {
+      verifier ??= createWebhookVerifier({
+        mayiOrigin,
+        maximumEventAgeSeconds: CALLBACK_MAX_RETRY_WINDOW_SECONDS,
+        now: dependencies.now ?? Date.now,
+        ...(config.webhookFetch === undefined ? {} : { fetch: config.webhookFetch }),
+        ...(config.eventStore === undefined ? {} : { isProcessed: config.eventStore.isProcessed }),
+      });
+      return verifier;
     },
   };
 }
@@ -275,11 +327,184 @@ export function createInputRequestedHandler(runtime: MayiChannelRuntime) {
   };
 }
 
-async function callbackHandler(): Promise<Response> {
-  return Response.json(
-    { error: "The Mayi approval callback resume handler is not available in this package version" },
-    { status: 501 },
-  );
+function genericResponse(status: number, message: string): Response {
+  return Response.json({ error: message }, {
+    status,
+    headers: { "cache-control": "no-store" },
+  });
+}
+
+function validBoundedString(value: unknown, maximumLength: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maximumLength;
+}
+
+function parseContinuationState(value: unknown, currentTime: number): MayiContinuationStateV1 {
+  if (
+    !value
+    || typeof value !== "object"
+    || Array.isArray(value)
+    || Object.keys(value).length !== 5
+    || (value as Record<string, unknown>).version !== 1
+    || !validBoundedString(
+      (value as Record<string, unknown>).rawContinuationToken,
+      MAX_CONTINUATION_TOKEN_LENGTH,
+    )
+    || !validBoundedString((value as Record<string, unknown>).requestId, MAX_CORRELATION_ID_LENGTH)
+    || !validBoundedString((value as Record<string, unknown>).sessionId, MAX_CORRELATION_ID_LENGTH)
+    || !validBoundedString((value as Record<string, unknown>).expiresAt, MAX_EXPIRY_LENGTH)
+  ) throw new CallbackStateError("INVALID_STATE");
+  const state = value as MayiContinuationStateV1;
+  const expiresAt = Date.parse(state.expiresAt);
+  if (!Number.isFinite(expiresAt)) throw new CallbackStateError("INVALID_STATE");
+  if (expiresAt <= currentTime) throw new CallbackStateError("EXPIRED");
+  return state;
+}
+
+async function requestWasAccepted(
+  getSession: RouteHandlerArgs<MayiChannelState>["getSession"],
+  sessionId: string,
+  requestId: string,
+): Promise<boolean> {
+  let callId: string | undefined;
+  try {
+    const stream = await getSession(sessionId).getEventStream();
+    const reader = stream.getReader();
+    try {
+      const deadline = Date.now() + ACCEPTANCE_RECONCILIATION_TIMEOUT_MS;
+      while (true) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          await reader.cancel();
+          return false;
+        }
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const result = await Promise.race([
+          reader.read(),
+          new Promise<null>((resolve) => {
+            timeout = setTimeout(() => resolve(null), remaining);
+          }),
+        ]).finally(() => clearTimeout(timeout));
+        if (result === null) {
+          await reader.cancel();
+          return false;
+        }
+        const { done, value } = result;
+        if (done) return false;
+        if (value.type === "input.requested") {
+          const request = value.data.requests.find((candidate) => candidate.requestId === requestId);
+          if (request?.action.kind === "tool-call") callId = request.action.callId;
+        } else if (
+          callId !== undefined
+          && value.type === "action.result"
+          && value.data.result.kind === "tool-result"
+          && value.data.result.callId === callId
+        ) {
+          return true;
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function markProcessed(eventId: string, runtime: MayiChannelRuntime): Promise<boolean> {
+  if (!runtime.eventStore) return true;
+  try {
+    await runtime.eventStore.markProcessed(eventId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function alreadyProcessed(eventId: string, runtime: MayiChannelRuntime): Promise<boolean> {
+  if (!runtime.eventStore) return false;
+  try {
+    return await runtime.eventStore.isProcessed(eventId) === true;
+  } catch {
+    return false;
+  }
+}
+
+export function createApprovalResolvedHandler(runtime: MayiChannelRuntime) {
+  return async (
+    request: Request,
+    args: RouteHandlerArgs<MayiChannelState>,
+  ): Promise<Response> => {
+    let body: string;
+    try {
+      body = await request.text();
+    } catch {
+      return genericResponse(400, "Invalid callback request");
+    }
+
+    let verification: Awaited<ReturnType<WebhookVerifier["verify"]>>;
+    try {
+      verification = await runtime.verifier().verify({
+        body,
+        signature: request.headers.get(MAYI_SIGNATURE_HEADER),
+      });
+    } catch (error) {
+      if (error instanceof WebhookConfigurationError) {
+        return genericResponse(503, "Callback verification is temporarily unavailable");
+      }
+      if (
+        error instanceof WebhookVerificationError
+        && (error.code === "KEY_SET_UNAVAILABLE" || error.code === "DUPLICATE_CHECK_FAILED")
+      ) return genericResponse(503, "Callback verification is temporarily unavailable");
+      return genericResponse(401, "Callback verification failed");
+    }
+    if (verification.duplicate) {
+      return new Response(null, { status: 208, headers: { "cache-control": "no-store" } });
+    }
+
+    let state: MayiContinuationStateV1;
+    let codec: CallbackStateCodec;
+    try {
+      codec = await runtime.codec();
+    } catch {
+      return genericResponse(503, "Callback state handling is temporarily unavailable");
+    }
+    try {
+      state = parseContinuationState(
+        await codec.open<unknown>(verification.event.state),
+        runtime.now(),
+      );
+    } catch {
+      return genericResponse(400, "Callback state is invalid");
+    }
+
+    const optionId = verification.event.status === "approved" ? "approve" : "deny";
+    try {
+      const session = await args.send({
+        inputResponses: [{ requestId: state.requestId, optionId }],
+      }, {
+        auth: null,
+        continuationToken: state.rawContinuationToken,
+        state: { rawContinuationToken: state.rawContinuationToken, target: null },
+      });
+      if (session.id !== state.sessionId) throw new Error("resume session mismatch");
+    } catch {
+      if (await alreadyProcessed(verification.event.id, runtime)) {
+        return new Response(null, { status: 208, headers: { "cache-control": "no-store" } });
+      }
+      if (!await requestWasAccepted(args.getSession, state.sessionId, state.requestId)) {
+        return genericResponse(503, "Eve did not accept the callback resume");
+      }
+      if (!await markProcessed(verification.event.id, runtime)) {
+        return genericResponse(503, "Callback acknowledgement is temporarily unavailable");
+      }
+      return new Response(null, { status: 208, headers: { "cache-control": "no-store" } });
+    }
+
+    if (!await markProcessed(verification.event.id, runtime)) {
+      return genericResponse(503, "Callback acknowledgement is temporarily unavailable");
+    }
+    return new Response(null, { status: 202, headers: { "cache-control": "no-store" } });
+  };
 }
 
 function createRawContinuationToken(): string {
@@ -303,7 +528,7 @@ export function mayiChannel(config: MayiChannelConfig): Channel<MayiChannelState
     context(state) {
       return { state };
     },
-    routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, callbackHandler)],
+    routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, createApprovalResolvedHandler(runtime))],
     async receive(input, { send }) {
       const mayiUserId = input.target.mayiUserId;
       if (mayiUserId !== undefined && !MAYI_USER_ID_PATTERN.test(mayiUserId)) {

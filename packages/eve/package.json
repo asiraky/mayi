@@ -32,6 +32,7 @@
   "scripts": {
     "build": "tsup && node ./scripts/normalize-source-maps.mjs",
     "prepack": "pnpm build",
+    "test:harness": "cd test-fixtures/approval-harness && eve eval --skip-report --timeout 30000 --max-concurrency 1",
     "test:package": "node ./scripts/test-package.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -44,6 +45,7 @@
   "devDependencies": {
     "eve": "0.24.2",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "zod": "^4.4.3"
   }
 }
