@@ -1,4 +1,4 @@
-import { createId, Decision } from "@mayi/contracts";
+import { actionAudience, Action, createId, Decision } from "@mayi/contracts";
 import { requireRecentAuthentication } from "@mayi/domain";
 import { signReceipt } from "@mayi/receipts";
 import { createError, defineEventHandler, getRouterParam } from "h3";
@@ -42,8 +42,8 @@ export default defineEventHandler(async (event) => {
       `;
       if (input.decision === "APPROVED") {
         const id = createId();
-        const action = approval.action as { audience?: string };
-        const audience = action.audience ?? getConfig().receiptAudience;
+        const action = Action.parse(approval.action);
+        const audience = actionAudience(action) ?? getConfig().receiptAudience;
         const exp = Math.min(Math.floor(expiresAt.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900);
         const keys = await signingKeys();
         const token = await signReceipt({

@@ -1,4 +1,4 @@
-import type { Artefact } from "@mayi/contracts";
+import { Action, type Artefact } from "@mayi/contracts";
 import { database } from "./runtime";
 
 export async function serializeApproval(workspaceId: string, approvalId: string) {
@@ -17,7 +17,7 @@ export async function serializeApproval(workspaceId: string, approvalId: string)
   `;
   return {
     id: String(row.id), workspaceId: String(row.workspace_id), agentId: String(row.agent_id), state: row.state,
-    action: row.action, explanation: row.explanation, enforcement: row.enforcement,
+    action: Action.parse(row.action), explanation: row.explanation, enforcement: row.enforcement,
     actionDigest: row.action_digest, manifestDigest: row.manifest_digest,
     artefacts: artefactRows.map((item, ordinal): Artefact => ({
       id: String(item.id), ordinal, filename: String(item.filename), mediaType: item.media_type as Artefact["mediaType"],

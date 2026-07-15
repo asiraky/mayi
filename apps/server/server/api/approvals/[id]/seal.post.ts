@@ -1,4 +1,4 @@
-import { createId, SealApproval } from "@mayi/contracts";
+import { actionName, Action, createId, SealApproval } from "@mayi/contracts";
 import { freezeDigests } from "@mayi/domain";
 import { createError, defineEventHandler, getRouterParam } from "h3";
 import { audit, requireAgent } from "../../../utils/auth";
@@ -30,7 +30,8 @@ export default defineEventHandler(async (event) => {
       const file = byId.get(id)!;
       return { id, ordinal, filename: String(file.filename), mediaType: file.media_type as "application/pdf", size: Number(file.size), sha256: String(file.sha256) };
     });
-    const digests = await freezeDigests(approval.action as never, manifest);
+    const action = Action.parse(approval.action);
+    const digests = await freezeDigests(action, manifest);
     const eligible = await sql`
       select m.user_id from memberships m join users u on u.id = m.user_id and u.active and u.deleted_at is null
       where m.workspace_id = ${auth.workspaceId} and m.active and m.revoked_at is null and m.role in ('OWNER', 'APPROVER')
@@ -49,7 +50,7 @@ export default defineEventHandler(async (event) => {
     const rules = await sql`
       select r.id, r.destination_id, d.type from forwarding_rules r join forwarding_destinations d on d.id = r.destination_id
       where r.workspace_id = ${auth.workspaceId} and r.active and d.active and d.verified_at is not null
-        and (r.action_kind = '*' or r.action_kind = ${(approval.action as { kind: string }).kind})
+        and (r.action_kind = '*' or r.action_kind = ${actionName(action)})
     `;
     for (const rule of rules) {
       const deliveries = await sql`

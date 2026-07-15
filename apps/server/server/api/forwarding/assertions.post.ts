@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createId, Id } from "@mayi/contracts";
+import { actionAudience, Action, createId, Id } from "@mayi/contracts";
 import { importJWK, jwtVerify } from "jose";
 import { signReceipt } from "@mayi/receipts";
 import { createError, defineEventHandler, readBody } from "h3";
@@ -51,11 +51,12 @@ export default defineEventHandler(async (event) => {
     if (claims.decision === "APPROVED") {
       const receiptId = createId(); const now = new Date(approval.database_now as Date); const expires = new Date(approval.expires_at as Date);
       const exp = Math.min(Math.floor(expires.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900); const keys = await signingKeys();
-      const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: (approval.action as { audience: string }).audience, sub: claims.request_id, jti: receiptId,
+      const audience = actionAudience(Action.parse(approval.action)) ?? getConfig().receiptAudience;
+      const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: audience, sub: claims.request_id, jti: receiptId,
         iat: Math.floor(now.getTime() / 1000), exp, workspace_id: claims.workspace_id, agent_id: String(approval.agent_id), policy_version: claims.policy_version,
         action_digest: claims.action_digest, artefact_manifest_digest: claims.artefact_manifest_digest, approver_id: String(destination.mapped_user_id), enforcement: approval.enforcement,
       }, keys.privateJwk, keys.kid);
-      await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${(approval.action as { audience: string }).audience}, ${token}, to_timestamp(${exp}))`;
+      await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${audience}, ${token}, to_timestamp(${exp}))`;
     }
     await audit({ workspaceId: claims.workspace_id, actorType: "system", eventType: `approval.external_${claims.decision.toLowerCase()}`, subjectType: "approval", subjectId: claims.request_id, metadata: { destinationId: claims.destination_id, actor: claims.actor } }, sql);
   });

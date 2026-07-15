@@ -1,3 +1,4 @@
+import { actionName, Action } from "@mayi/contracts";
 import { createError, defineEventHandler, getHeader } from "h3";
 import { timingSafeEqual } from "../../../utils/crypto";
 import { database } from "../../../utils/runtime";
@@ -43,7 +44,10 @@ async function webhook(job: Job): Promise<void> {
     join approvals a on a.id = ${approvalId} and a.workspace_id = d.workspace_id
     join forwarding_deliveries fd on fd.id = ${deliveryId} and fd.destination_id = d.id and fd.approval_id = a.id
     where d.id = ${destinationId} and d.workspace_id = ${job.workspace_id} and d.active and d.verified_at is not null
-      and (r.action_kind = '*' or r.action_kind = a.action->>'kind') limit 1
+      and (r.action_kind = '*' or r.action_kind = case
+        when a.action->>'kind' = 'tool-call' then a.action->>'toolName'
+        else a.action->>'kind'
+      end) limit 1
   `;
   const row = rows[0]; if (!row) throw new Error("Forwarding authority no longer exists");
   const artefacts = row.include_artefact_metadata ? await database().sql`
@@ -69,9 +73,9 @@ async function email(job: Job): Promise<void> {
     select d.endpoint, a.action, a.expires_at from forwarding_destinations d join approvals a on a.id = ${approvalId} and a.workspace_id = d.workspace_id
     where d.id = ${destinationId} and d.workspace_id = ${job.workspace_id} and d.type = 'EMAIL' and d.active and d.verified_at is not null
   `;
-  const row = rows[0]; if (!row) throw new Error("Email destination no longer exists"); const action = row.action as { kind?: string };
+  const row = rows[0]; if (!row) throw new Error("Email destination no longer exists"); const action = Action.parse(row.action);
   const response = await fetch(process.env.EMAIL_API_URL, { method: "POST", headers: { authorization: `Bearer ${process.env.EMAIL_API_KEY}`, "content-type": "application/json" }, body: JSON.stringify({
-    to: row.endpoint, subject: "May I? approval requested", text: `An agent requested approval for ${action.kind ?? "an action"}. Review it securely: ${process.env.PUBLIC_ORIGIN}/?approval=${approvalId}\nExpires: ${new Date(row.expires_at as Date).toISOString()}`,
+    to: row.endpoint, subject: "May I? approval requested", text: `An agent requested approval for ${actionName(action)}. Review it securely: ${process.env.PUBLIC_ORIGIN}/?approval=${approvalId}\nExpires: ${new Date(row.expires_at as Date).toISOString()}`,
   }) });
   if (!response.ok) throw new Error(`Email provider returned ${response.status}`);
   await database().sql`update forwarding_deliveries set state = 'DELIVERED', response_code = ${response.status}, delivered_at = now() where id = ${deliveryId} and workspace_id = ${job.workspace_id}`;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createId } from "@mayi/contracts";
-import { decisionTransition, freezeDigests, validateActionForEnforcement, validateSuggestedApprover } from "./index";
+import { decisionTransition, freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "./index";
 
 describe("approval state", () => {
   it("uses authoritative time to expire instead of approving", () => {
@@ -18,16 +18,24 @@ describe("approval state", () => {
 
 describe("executor-owned action schemas", () => {
   it("does not describe an unknown action as verified", () => {
-    expect(() => validateActionForEnforcement({ kind: "custom.note", version: "1", audience: "test", parameters: {} }, "verified")).toThrow(/registered exact-action/);
+    expect(() => validateActionForEnforcement({ kind: "custom.note", version: "1", audience: "test", input: {} }, "verified")).toThrow(/registered exact-action/);
   });
   it("allows unknown actions only as cooperative records", () => {
-    expect(() => validateActionForEnforcement({ kind: "custom.note", version: "1", audience: "test", parameters: {} }, "cooperative")).not.toThrow();
+    expect(() => validateActionForEnforcement({ kind: "custom.note", version: "1", audience: "test", input: {} }, "cooperative")).not.toThrow();
+  });
+  it("allows tool calls only with cooperative enforcement", () => {
+    const action = { kind: "tool-call" as const, toolName: "deploy.release", callId: "call-1", input: { release: "1.2.3" } };
+    expect(() => validateActionForEnforcement(action, "cooperative")).not.toThrow();
+    expect(() => validateActionForEnforcement(action, "verified")).toThrow(/cooperative enforcement/);
+  });
+  it("uses the tool name when classifying risk", () => {
+    expect(isHighRisk({ kind: "tool-call", toolName: "admin.user.delete", callId: "call-1", input: {} })).toBe(true);
   });
 });
 
 describe("exact-action binding", () => {
   it("changes when artefact order changes", async () => {
-    const action = { kind: "git.merge", version: "1", audience: "github", parameters: { sha: "abc" } };
+    const action = { kind: "git.merge", version: "1", audience: "github", input: { sha: "abc" } };
     const first = { id: createId(), ordinal: 0, filename: "a.pdf", mediaType: "application/pdf" as const, size: 1, sha256: "a".repeat(64) };
     const second = { ...first, id: createId(), ordinal: 1, filename: "b.pdf", sha256: "b".repeat(64) };
     const a = await freezeDigests(action, [first, second]);

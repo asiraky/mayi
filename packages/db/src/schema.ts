@@ -1,3 +1,4 @@
+import type { Action } from "@mayi/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
@@ -104,7 +105,7 @@ export const approvals = pgTable("approvals", {
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   agentId: identifier("agent_id").references(() => agents.id).notNull(),
   state: approvalState("state").default("DRAFT").notNull(),
-  action: jsonb("action").notNull(),
+  action: jsonb("action").$type<Action>().notNull(),
   explanation: text("explanation").notNull(),
   enforcement: enforcementMode("enforcement").default("cooperative").notNull(),
   actionDigest: text("action_digest"),

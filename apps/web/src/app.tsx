@@ -1,4 +1,4 @@
-import type { Approval, Session } from "@mayi/contracts";
+import { actionName, type Approval, type Session } from "@mayi/contracts";
 import { MayIClient } from "@mayi/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { StateBadge } from "~/components/state-badge";
@@ -164,7 +164,7 @@ export function App() {
                     <Row key={item.id} onClick={() => setSelected(item.id)}>
                       <span className="grid min-w-0 gap-1">
                         {/* The action is machine data; the agent's explanation is not. */}
-                        <span className="truncate font-mono text-[14px] font-medium">{item.action.kind}</span>
+                        <span className="truncate font-mono text-[14px] font-medium">{actionName(item.action)}</span>
                         <span className="truncate text-[13px] text-muted-foreground">{item.explanation}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-3">

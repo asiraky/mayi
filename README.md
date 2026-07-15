@@ -28,7 +28,7 @@ const draft = await mayi.createApproval({
     kind: "deploy.release",
     version: "1",
     audience: "production-deployer",
-    parameters: {
+    input: {
       environment: "production",
       releaseDigest: "sha256:8c7f...",
       expectedCurrentRelease: "sha256:12ab...",
