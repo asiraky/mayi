@@ -55,11 +55,24 @@ export const sessions = pgTable("sessions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
+export const oauthClients = pgTable("oauth_clients", {
+  id: identifier("id").primaryKey(),
+  name: text("name").notNull(),
+  redirectUris: text("redirect_uris").array().notNull(),
+  approvalCallbackUris: text("approval_callback_uris").array().notNull(),
+  registrationIpHash: text("registration_ip_hash").notNull(),
+  createdAt,
+}, (t) => [
+  index("oauth_clients_registration_ip_created_idx").on(t.registrationIpHash, t.createdAt),
+  check("oauth_clients_redirect_uri_count_check", sql`cardinality(${t.redirectUris}) BETWEEN 1 AND 5`),
+  check("oauth_clients_approval_callback_uri_count_check", sql`cardinality(${t.approvalCallbackUris}) <= 10`),
+]);
+
 export const agents = pgTable("agents", {
   id: identifier("id").primaryKey(),
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
-  clientId: text("client_id"),
+  clientId: identifier("client_id").references(() => oauthClients.id),
   scopes: text("scopes").array().notNull(),
   credentialHash: text("credential_hash"),
   credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
@@ -67,14 +80,7 @@ export const agents = pgTable("agents", {
   createdAt,
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
-}, (t) => [index("agents_workspace_idx").on(t.workspaceId)]);
-
-export const oauthClients = pgTable("oauth_clients", {
-  id: identifier("id").primaryKey(),
-  name: text("name").notNull(),
-  redirectUris: text("redirect_uris").array().notNull(),
-  createdAt,
-});
+}, (t) => [index("agents_workspace_idx").on(t.workspaceId), index("agents_client_idx").on(t.clientId)]);
 
 export const oauthCodes = pgTable("oauth_codes", {
   codeHash: text("code_hash").primaryKey(),

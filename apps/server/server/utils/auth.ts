@@ -13,7 +13,7 @@ export type UserAuth = {
   recentAuthAt: Date;
   role: "OWNER" | "APPROVER" | "MEMBER";
 };
-export type AgentAuth = { kind: "agent"; agentId: string; workspaceId: string; scopes: string[] };
+export type AgentAuth = { kind: "agent"; agentId: string; workspaceId: string; clientId: string | null; scopes: string[] };
 
 export async function createSession(event: H3Event, userId: string): Promise<string> {
   const sessionId = createId();
@@ -65,13 +65,16 @@ export async function requireAgent(event: H3Event, requiredScope?: string): Prom
   const rows = await database().sql`
     update agents set last_used_at = now()
     where credential_hash = ${hash} and revoked_at is null and (credential_expires_at is null or credential_expires_at > now())
-    returning id, workspace_id, scopes
+    returning id, workspace_id, client_id, scopes
   `;
   const row = rows[0];
   if (!row) throw createError({ statusCode: 401, statusMessage: "Agent token is invalid or revoked" });
   const scopes = row.scopes as string[];
   if (requiredScope && !scopes.includes(requiredScope)) throw createError({ statusCode: 403, statusMessage: `Missing scope: ${requiredScope}` });
-  return { kind: "agent", agentId: String(row.id), workspaceId: String(row.workspace_id), scopes };
+  return {
+    kind: "agent", agentId: String(row.id), workspaceId: String(row.workspace_id),
+    clientId: row.client_id === null ? null : String(row.client_id), scopes,
+  };
 }
 
 export async function requireUserOrAgent(event: H3Event): Promise<UserAuth | AgentAuth> {
