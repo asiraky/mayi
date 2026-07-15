@@ -15,8 +15,8 @@ jobs:
       site: ${{ steps.filter.outputs.site || 'true' }}
       server: ${{ steps.filter.outputs.server || 'true' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
         id: filter
         if: github.event_name != 'workflow_dispatch'
         with:
@@ -52,12 +52,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U mayi" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with: { version: 10.28.0 }
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      - name: Check release intent
+        if: github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main'
+        run: pnpm changeset:check -- "origin/${{ github.base_ref }}"
       - run: pnpm db:migrate
         env: { DATABASE_URL: "postgres://mayi:mayi@localhost:5432/mayi" }
       - run: pnpm lint
@@ -77,10 +81,10 @@ jobs:
       group: cloudflare-site-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with: { version: 10.28.0 }
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mayi/site build
@@ -98,10 +102,10 @@ jobs:
       group: cloudflare-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with: { version: 10.28.0 }
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: Synchronize Hyperdrive origin

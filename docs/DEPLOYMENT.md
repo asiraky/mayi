@@ -13,6 +13,10 @@ Set `CONSUMER_API_KEYS` to a JSON object mapping receipt audiences to relying-pa
 
 Back up the database and object store, then apply the committed Drizzle migrations before new application code serves production traffic. After deployment, verify `/api/health` and `/api/ready`. Receipt keys and `CRON_SECRET` must persist across deployments; rotating them is a separate operation described in `docs/OPERATIONS.md`.
 
+The npm Trusted Publishing, protected environment, version-PR, prerelease, and
+immutable rollback procedures for `@mayi/sdk` and `@mayi/eve` are documented in
+[`docs/RELEASING.md`](RELEASING.md).
+
 ## Cloudflare
 
 The public site and application are separate Workers:

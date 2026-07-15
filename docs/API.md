@@ -10,6 +10,10 @@ it; then revoke the old connection through the agent disconnect flow. Existing
 tokens remain bound to the old client and never inherit the replacement client's
 callback URLs.
 
+The SDK never owns this OAuth session. The embedding host runs the browser
+Authorization Code + PKCE flow, stores and rotates the refresh grant, and
+supplies current access tokens to the SDK or Eve adapter.
+
 HTTP agents use `POST /api/approvals` with `Idempotency-Key`, upload private evidence to `POST /api/approvals/:id/artefacts?filename=...`, then seal with `POST /api/approvals/:id/seal`. Users list, inspect, and decide through the same approval resources. A target verifies the JWS against `/.well-known/jwks.json`; consumed receipts are posted with exact action and manifest digests to `/api/receipts/consume`.
 
 No-artifact OAuth agents use `POST /api/approvals/request` with an
@@ -19,6 +23,13 @@ to the bearer token and must pass the public-HTTPS policy at request time. The
 endpoint atomically creates and seals the approval, freezes its empty-manifest
 digests and eligible approvers, stores callback state as opaque text, queues the
 normal pending notifications, and returns `PENDING` without waiting for a human.
+
+The public-HTTPS check has two runtime implementations. Node and Vercel connect
+to the validated IP address while preserving the original Host header and TLS
+SNI. Cloudflare Workers cannot pin the connection address, so the edge path
+immediately re-resolves DNS and sends a `redirect: "error"` fetch. Both reject a
+URL when any answer is non-public, but only the Node transport provides
+connection pinning.
 
 When that approval becomes approved, denied, expired, or cancelled, the same
 database transaction activates its callback outbox row. Delivery posts a
@@ -50,3 +61,10 @@ Webhook destinations are ownership-verified at creation, then selected by server
 
 Per-request terminal callbacks are separate from forwarding destinations and
 rules. Forwarding continues to emit only `mayi.approval_pending`.
+
+Tool-call approvals use the exact `{ kind: "tool-call", toolName, callId, input }`
+shape and carry no `audience`; OAuth client identity is enforced by request
+authentication and callback authorization instead. These calls are
+cooperatively enforced. May I? can issue `verified` or `consumed` enforcement
+only for a versioned action whose executor-owned schema is registered, because
+it cannot otherwise prove what an arbitrary tool executor ran.

@@ -2,7 +2,7 @@
 
 Durable Mayi approval channel for [Eve](https://github.com/vercel/eve) agents.
 
-## Install
+## Quick start
 
 ```sh
 npm install @mayi/eve eve
@@ -117,6 +117,11 @@ or a signature verifier. The adapter builds the callback URL from the stable
 public Eve origin. Register that exact HTTPS URL as an
 entry in `approval_callback_uris` for the Eden/host OAuth client.
 
+The explicit `POST()` route is intentional. Eve 0.24.2 compiles a channel
+`route.path` verbatim; it does not prepend a channel namespace. Inventing a
+`/channels/mayi/...` prefix registers the wrong OAuth callback and produces a
+404 instead of a resume.
+
 For every delivery, the adapter verifies Mayi's EdDSA JWS against Mayi's JWKS
 before it touches encrypted state or resumes Eve. It then opens the authenticated
 state and submits the response against the original Eve request ID and the
@@ -168,6 +173,28 @@ they are not copied into the agent's environment.
 
 Never log decrypted callback state, continuation tokens, OAuth credentials,
 receipts, or sensitive tool input.
+
+## Troubleshooting
+
+- **Public origin:** set `EVE_PUBLIC_ORIGIN` to one stable public HTTPS origin.
+  Vercel production can use `VERCEL_PROJECT_PRODUCTION_URL`; preview URLs,
+  localhost, paths, ports, and private hosts are refused.
+- **Origin changes:** `approval_callback_uris` are immutable. Register a new
+  OAuth client with the new callback, reconnect through Authorization Code +
+  PKCE, confirm the new agent works, then revoke the old agent connection.
+- **Local tunnels:** pass the tunnel origin through `publicOrigin` only in local
+  development and register its exact callback on a development OAuth client.
+  Tunnel rotation requires updating that development registration.
+- **State rotation:** install a new callback-state key and retain old decrypt-only
+  keys until every outstanding approval plus Mayi's maximum retry window has
+  elapsed. Unknown, tampered, expired, or wrong-key state fails closed.
+- **Signing rotation:** Mayi publishes current and retained Ed25519 public keys at
+  `/.well-known/jwks.json`. Keep old signing public keys available through the
+  callback retry/event-age window; bounded JWKS refresh handles a newly seen key.
+- **Retries and recovery:** non-`2xx` responses remain retryable according to
+  Mayi's outbox policy. Inspect the Mayi callback job, correct the receiver, and
+  replay only a `DEAD_LETTER` job through the authenticated replay endpoint. The
+  stable event ID makes duplicate delivery safe.
 
 ## Eve 0.24.2 limitation for unsupported input
 
