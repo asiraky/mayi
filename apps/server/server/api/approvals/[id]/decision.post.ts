@@ -8,6 +8,7 @@ import { bodyAs, asHttpError } from "../../../utils/http";
 import { database } from "../../../utils/runtime";
 import { serializeApproval } from "../../../utils/serialize";
 import { signingKeys } from "../../../utils/signer";
+import { activateApprovalCallback } from "../../../utils/callback-outbox";
 
 export default defineEventHandler(async (event) => {
   const auth = await requireUser(event);
@@ -25,6 +26,7 @@ export default defineEventHandler(async (event) => {
       const expiresAt = new Date(approval.expires_at as Date | string);
       if (expiresAt.getTime() <= now.getTime()) {
         await sql`update approvals set state = 'EXPIRED', decided_at = now() where id = ${approvalId} and state = 'PENDING'`;
+        await activateApprovalCallback(sql, approvalId);
         await audit({ workspaceId: auth.workspaceId, actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: approvalId }, sql);
         return;
       }
@@ -58,6 +60,7 @@ export default defineEventHandler(async (event) => {
           values (${id}, ${approvalId}, ${auth.workspaceId}, ${audience}, ${token}, to_timestamp(${exp}))
         `;
       }
+      await activateApprovalCallback(sql, approvalId);
       await audit({ workspaceId: auth.workspaceId, actorType: "user", actorId: auth.userId, eventType: `approval.${input.decision.toLowerCase()}`, subjectType: "approval", subjectId: approvalId }, sql);
     });
   } catch (error) { asHttpError(error); }

@@ -5,7 +5,7 @@
 All production targets require PostgreSQL 15+, a private durable object store, HTTPS, and the following runtime configuration:
 
 - `PUBLIC_ORIGIN`, with `SESSION_COOKIE_SECURE=true` when it uses HTTPS;
-- persistent `RECEIPT_PRIVATE_JWK` and `RECEIPT_PUBLIC_JWK` values generated with `pnpm --filter @mayi/receipts generate-key`;
+- persistent `RECEIPT_PRIVATE_JWK` and `RECEIPT_PUBLIC_JWK` values generated with `pnpm --filter @mayi/receipts generate-key`, plus `RECEIPT_PREVIOUS_PUBLIC_JWKS` during key rotation;
 - a random `CRON_SECRET` of at least 16 characters; and
 - the credentials for each enabled provider.
 
@@ -28,7 +28,7 @@ For the application Worker:
 2. Create a cache-disabled Hyperdrive configuration with `pnpm exec wrangler hyperdrive create may-i --connection-string="$DATABASE_URL" --caching-disabled`.
 3. Replace `REPLACE_WITH_HYPERDRIVE_ID` in `wrangler.toml` with the returned ID. Query caching must remain disabled because authorization reads require read-after-write consistency.
 4. Apply migrations with the direct PostgreSQL URL: `DATABASE_URL="$DATABASE_URL" pnpm db:migrate`.
-5. Store `RECEIPT_PRIVATE_JWK`, `RECEIPT_PUBLIC_JWK`, and `CRON_SECRET` with `pnpm exec wrangler secret put NAME --config wrangler.toml`. Store optional provider credentials the same way.
+5. Store `RECEIPT_PRIVATE_JWK`, `RECEIPT_PUBLIC_JWK`, `RECEIPT_PREVIOUS_PUBLIC_JWKS`, and `CRON_SECRET` with `pnpm exec wrangler secret put NAME --config wrangler.toml`. Store optional provider credentials the same way.
 6. Run `pnpm --filter @mayi/server build:cloudflare`, then `pnpm exec wrangler deploy --config wrangler.toml`.
 
 The first successful deployment provisions the `app.mayi.sh` custom domain. The Worker Cron Trigger runs every minute and calls the authenticated durable-job recovery endpoint.
@@ -42,6 +42,7 @@ Relevant pushes to `main` deploy only after the `verify` job passes. Configure G
 - `NEON_DATABASE_URL` (the direct, non-pooled URL used by the deployment runner)
 - `RECEIPT_PRIVATE_JWK`
 - `RECEIPT_PUBLIC_JWK`
+- `RECEIPT_PREVIOUS_PUBLIC_JWKS` (set it to `[]` outside a rotation window)
 - `CRON_SECRET`
 
 Add `CLOUDFLARE_HYPERDRIVE_ID` as an environment variable, not a secret. The workflow synchronizes the Hyperdrive origin with query caching disabled, applies migrations, substitutes the binding ID, and deploys the Worker and its secrets. A failure before the deploy step leaves the previous Worker running. Secrets previously added directly to the Worker, such as optional provider credentials, are preserved when the workflow deploys its secrets file.
@@ -58,7 +59,7 @@ Vercel does not apply database migrations. A production release pipeline must bu
 
 ## VPS
 
-Copy `.env.example` to `.env`, generate the receipt keys, and set at least `PUBLIC_ORIGIN`, `SESSION_COOKIE_SECURE`, both receipt JWKs, and `CRON_SECRET`. For TLS, also set `MAYI_DOMAIN` to the public hostname. The Compose PostgreSQL and application ports bind to loopback; Caddy is the public entry point when TLS is enabled.
+Copy `.env.example` to `.env`, generate the receipt keys, and set at least `PUBLIC_ORIGIN`, `SESSION_COOKIE_SECURE`, both receipt JWKs, `RECEIPT_PREVIOUS_PUBLIC_JWKS`, and `CRON_SECRET`. For TLS, also set `MAYI_DOMAIN` to the public hostname. The Compose PostgreSQL and application ports bind to loopback; Caddy is the public entry point when TLS is enabled.
 
 Start PostgreSQL and apply migrations before starting the application:
 
@@ -75,7 +76,7 @@ For Caddy-managed TLS, use both profiles:
 docker compose --profile full --profile tls up -d
 ```
 
-Configure the host scheduler to send an authenticated `POST` to `/api/internal/jobs/drain` once per minute with `Authorization: Bearer <CRON_SECRET>`. Without this scheduler, pending notifications, forwarding retries, and approval expiry recovery do not run. Keep the bearer value in a root-readable environment or credential file rather than embedding it in a world-readable crontab.
+Configure the host scheduler to send an authenticated `POST` to `/api/internal/jobs/drain` once per minute with `Authorization: Bearer <CRON_SECRET>`. Without this scheduler, pending notifications, forwarding retries, terminal callback delivery, stale-lease recovery, and approval expiry recovery do not run. Keep the bearer value in a root-readable environment or credential file rather than embedding it in a world-readable crontab.
 
 An external PostgreSQL service can replace the bundled service after updating the application's `DATABASE_URL` and Compose dependency. For S3-compatible storage, set `OBJECT_STORE=s3` and the `S3_*` values; the mounted `OBJECT_DIRECTORY` is then ignored. No telemetry or Cloudflare service is required.
 

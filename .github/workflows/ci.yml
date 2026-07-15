@@ -137,6 +137,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           RECEIPT_PRIVATE_JWK: ${{ secrets.RECEIPT_PRIVATE_JWK }}
           RECEIPT_PUBLIC_JWK: ${{ secrets.RECEIPT_PUBLIC_JWK }}
+          RECEIPT_PREVIOUS_PUBLIC_JWKS: ${{ secrets.RECEIPT_PREVIOUS_PUBLIC_JWKS }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN"
@@ -149,7 +150,8 @@ jobs:
           jq -n \
             --arg receipt_private_jwk "$RECEIPT_PRIVATE_JWK" \
             --arg receipt_public_jwk "$RECEIPT_PUBLIC_JWK" \
+            --arg receipt_previous_public_jwks "${RECEIPT_PREVIOUS_PUBLIC_JWKS:-[]}" \
             --arg cron_secret "$CRON_SECRET" \
-            '{RECEIPT_PRIVATE_JWK: $receipt_private_jwk, RECEIPT_PUBLIC_JWK: $receipt_public_jwk, CRON_SECRET: $cron_secret}' \
+            '{RECEIPT_PRIVATE_JWK: $receipt_private_jwk, RECEIPT_PUBLIC_JWK: $receipt_public_jwk, RECEIPT_PREVIOUS_PUBLIC_JWKS: $receipt_previous_public_jwks, CRON_SECRET: $cron_secret}' \
             > "$secrets_file"
           pnpm exec wrangler deploy --config wrangler.toml --secrets-file "$secrets_file"

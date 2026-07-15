@@ -20,4 +20,33 @@ endpoint atomically creates and seals the approval, freezes its empty-manifest
 digests and eligible approvers, stores callback state as opaque text, queues the
 normal pending notifications, and returns `PENDING` without waiting for a human.
 
+When that approval becomes approved, denied, expired, or cancelled, the same
+database transaction activates its callback outbox row. Delivery posts a
+canonical JSON body signed by `X-Mayi-Signature`; the signing keys are published
+at `/.well-known/jwks.json`. The version 1 event is intentionally minimal:
+
+```json
+{
+  "id": "AbCdEfGhIjKl",
+  "type": "approval.resolved",
+  "version": 1,
+  "approvalId": "MnOpQrStUvWx",
+  "status": "approved",
+  "state": "<opaque ciphertext>",
+  "occurredAt": "2026-07-15T00:00:00.000Z",
+  "approver": { "id": "YzAbCdEfGhIj" },
+  "receipt": "<approved receipt>"
+}
+```
+
+`approver` is present only for approved and denied decisions. `receipt` is
+present only for approved decisions. `id` and `occurredAt` are stable across
+retries and manual replay. Consumers should deduplicate on `id`, verify the
+compact EdDSA JWS against the raw canonical body with `@mayi/sdk`, and return any
+2xx status for both first acceptance and duplicate acceptance. Mayi stores and
+echoes `state` unchanged and never parses or logs it.
+
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.
+
+Per-request terminal callbacks are separate from forwarding destinations and
+rules. Forwarding continues to emit only `mayi.approval_pending`.

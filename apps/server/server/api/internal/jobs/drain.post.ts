@@ -1,24 +1,20 @@
 import { actionName, Action } from "@mayi/contracts";
-import { createError, defineEventHandler, getHeader } from "h3";
-import { timingSafeEqual } from "../../../utils/crypto";
+import { defineEventHandler } from "h3";
 import { database } from "../../../utils/runtime";
 import { audit } from "../../../utils/auth";
 import { signWebhook, validateOutboundUrl } from "../../../utils/forwarding";
+import {
+  CALLBACK_JOB_TYPE,
+  activateApprovalCallback,
+  claimNextJob,
+  markCallbackDelivered,
+  markCallbackFailed,
+  sendApprovalCallback,
+  type OutboxJob,
+} from "../../../utils/callback-outbox";
+import { requireCronSecret } from "../../../utils/internal-auth";
 
-type Job = { id: string; workspace_id: string; type: string; payload: { approvalId?: string; destinationId?: string; deliveryId?: string }; attempts: number };
-
-async function nextJob(): Promise<Job | undefined> {
-  return database().sql.begin(async (sql) => {
-    const rows = await sql`
-      select id, workspace_id, type, payload, attempts from jobs
-      where state in ('READY','FAILED') and available_at <= now() and attempts < 10
-      order by available_at for update skip locked limit 1
-    `;
-    if (!rows[0]) return undefined;
-    await sql`update jobs set state = 'RUNNING', locked_at = now(), attempts = attempts + 1 where id = ${rows[0].id}`;
-    return rows[0] as Job;
-  });
-}
+type Job = OutboxJob;
 
 async function push(job: Job): Promise<void> {
   const approvalId = job.payload.approvalId;
@@ -82,30 +78,52 @@ async function email(job: Job): Promise<void> {
 }
 
 export default defineEventHandler(async (event) => {
-  const expected = process.env.CRON_SECRET ?? ""; const supplied = getHeader(event, "authorization")?.replace(/^Bearer /, "") ?? "";
-  if (!expected || !timingSafeEqual(expected, supplied)) throw createError({ statusCode: 401, statusMessage: "Job runner authentication failed" });
-  const expired = await database().sql`
-    update approvals set state = 'EXPIRED', decided_at = now()
-    where state = 'PENDING' and expires_at <= now()
-    returning id, workspace_id
-  `;
-  for (const approval of expired) {
-    await audit({ workspaceId: String(approval.workspace_id), actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: String(approval.id) });
+  requireCronSecret(event);
+  let expired = 0;
+  for (; expired < 100; expired++) {
+    const didExpire = await database().sql.begin(async (sql) => {
+      const rows = await sql`
+        select id, workspace_id from approvals
+        where state = 'PENDING' and expires_at <= now()
+        order by expires_at for update skip locked limit 1
+      `;
+      if (!rows[0]) return false;
+      const approvalId = String(rows[0].id);
+      const workspaceId = String(rows[0].workspace_id);
+      await sql`update approvals set state = 'EXPIRED', decided_at = now() where id = ${approvalId} and state = 'PENDING'`;
+      await activateApprovalCallback(sql, approvalId);
+      await audit({ workspaceId, actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: approvalId }, sql);
+      return true;
+    });
+    if (!didExpire) break;
   }
   let processed = 0;
   for (; processed < 25; processed++) {
-    const job = await nextJob(); if (!job) break;
+    const job = await claimNextJob(); if (!job) break;
     try {
-      if (job.type === "push.approval_pending") await push(job);
+      if (job.type === CALLBACK_JOB_TYPE) {
+        await sendApprovalCallback(job);
+        await markCallbackDelivered(job);
+      } else if (job.type === "push.approval_pending") await push(job);
       else if (job.type === "webhook.approval_pending") await webhook(job);
       else if (job.type === "email.approval_pending") await email(job);
       else throw new Error("Unknown job type");
-      await database().sql`update jobs set state = 'SUCCEEDED', completed_at = now(), last_error = null where id = ${job.id}`;
+      if (job.type !== CALLBACK_JOB_TYPE) {
+        await database().sql`update jobs set state = 'SUCCEEDED', completed_at = now(), locked_at = null, last_error = null where id = ${job.id}`;
+      }
       await audit({ workspaceId: job.workspace_id, actorType: "system", eventType: "job.succeeded", subjectType: "job", subjectId: job.id, metadata: { type: job.type } });
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 500) : "Job failed";
-      await database().sql`update jobs set state = 'FAILED', last_error = ${message}, available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5)) where id = ${job.id}`;
+      if (job.type === CALLBACK_JOB_TYPE) {
+        await markCallbackFailed(job, error);
+      } else {
+        const message = error instanceof Error ? error.message.slice(0, 500) : "Job failed";
+        if (job.attempts >= 10) {
+          await database().sql`update jobs set state = 'DEAD_LETTER', locked_at = null, completed_at = now(), last_error = ${message} where id = ${job.id}`;
+        } else {
+          await database().sql`update jobs set state = 'FAILED', locked_at = null, last_error = ${message}, available_at = now() + make_interval(secs => least(3600, power(2, attempts)::int * 5)) where id = ${job.id}`;
+        }
+      }
     }
   }
-  return { processed };
+  return { expired, processed };
 });

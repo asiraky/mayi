@@ -5,6 +5,7 @@ import { z } from "zod";
 import { audit, requireAgent } from "../utils/auth";
 import { database } from "../utils/runtime";
 import { serializeApproval } from "../utils/serialize";
+import { activateApprovalCallback } from "../utils/callback-outbox";
 
 const Call = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]).optional(), method: z.string(), params: z.record(z.string(), z.unknown()).optional() });
 
@@ -73,7 +74,16 @@ export default defineEventHandler(async (event) => {
   if (name === "cancel_approval") {
     if (!auth.scopes.includes("approval:cancel")) return result(request.id, { isError: true, content: [{ type: "text", text: "Missing approval:cancel scope" }] });
     const id = Id.parse(args.id);
-    await database().sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id} and workspace_id = ${auth.workspaceId} and agent_id = ${auth.agentId} and state in ('DRAFT','PENDING')`;
+    await database().sql.begin("isolation level serializable", async (sql) => {
+      const rows = await sql`
+        select id from approvals where id = ${id} and workspace_id = ${auth.workspaceId}
+          and agent_id = ${auth.agentId} and state in ('DRAFT','PENDING') for update
+      `;
+      if (!rows[0]) return;
+      await sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id}`;
+      await activateApprovalCallback(sql, id);
+      await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.cancelled", subjectType: "approval", subjectId: id }, sql);
+    });
     return result(request.id, toolResult(await serializeApproval(auth.workspaceId, id)));
   }
   return result(request.id, { isError: true, content: [{ type: "text", text: "Unknown tool" }] });

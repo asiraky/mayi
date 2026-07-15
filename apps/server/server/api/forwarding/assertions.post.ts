@@ -8,6 +8,7 @@ import { getConfig } from "../../utils/config";
 import { signingKeys } from "../../utils/signer";
 import { audit } from "../../utils/auth";
 import { serializeApproval } from "../../utils/serialize";
+import { activateApprovalCallback } from "../../utils/callback-outbox";
 
 const AssertionClaims = z.object({
   iss: Id, aud: z.union([z.string(), z.array(z.string())]), iat: z.number().int(), exp: z.number().int(),
@@ -37,6 +38,7 @@ export default defineEventHandler(async (event) => {
     if (String(approval.action_digest) !== claims.action_digest || String(approval.manifest_digest) !== claims.artefact_manifest_digest || Number(approval.policy_version) !== claims.policy_version) throw createError({ statusCode: 409, statusMessage: "Assertion is not bound to the sealed request" });
     if (new Date(approval.expires_at as Date) <= new Date(approval.database_now as Date)) {
       await sql`update approvals set state = 'EXPIRED', decided_at = now() where id = ${claims.request_id}`;
+      await activateApprovalCallback(sql, claims.request_id);
       await audit({ workspaceId: claims.workspace_id, actorType: "system", eventType: "approval.expired", subjectType: "approval", subjectId: claims.request_id }, sql); return;
     }
     const eligible = await sql`
@@ -58,6 +60,7 @@ export default defineEventHandler(async (event) => {
       }, keys.privateJwk, keys.kid);
       await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${audience}, ${token}, to_timestamp(${exp}))`;
     }
+    await activateApprovalCallback(sql, claims.request_id);
     await audit({ workspaceId: claims.workspace_id, actorType: "system", eventType: `approval.external_${claims.decision.toLowerCase()}`, subjectType: "approval", subjectId: claims.request_id, metadata: { destinationId: claims.destination_id, actor: claims.actor } }, sql);
   });
   return serializeApproval(claims.workspace_id, claims.request_id);

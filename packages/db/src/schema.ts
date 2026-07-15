@@ -14,7 +14,8 @@ export const approvalState = pgEnum("approval_state", ["DRAFT", "PENDING", "APPR
 export const enforcementMode = pgEnum("enforcement_mode", ["cooperative", "verified", "consumed"]);
 export const destinationMode = pgEnum("destination_mode", ["notify_only", "may_decide"]);
 export const destinationType = pgEnum("destination_type", ["WEBHOOK", "EMAIL"]);
-export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "FAILED"]);
+export const callbackDeliveryStatus = pgEnum("callback_delivery_status", ["WAITING", "READY", "RUNNING", "FAILED", "DELIVERED", "DEAD_LETTER"]);
+export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTER"]);
 
 const createdAt = timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 
@@ -136,12 +137,27 @@ export const approvalCallbacks = pgTable("approval_callbacks", {
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   url: text("url").notNull(),
   state: text("state").notNull(),
+  deliveryStatus: callbackDeliveryStatus("delivery_status").default("WAITING").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }),
   createdAt,
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
 }, (t) => [
   uniqueIndex("approval_callbacks_approval_uidx").on(t.approvalId),
   index("approval_callbacks_workspace_idx").on(t.workspaceId, t.createdAt),
+  index("approval_callbacks_delivery_idx").on(t.deliveryStatus, t.nextAttemptAt),
   check("approval_callbacks_url_length_check", sql`char_length(${t.url}) BETWEEN 1 AND 2048`),
   check("approval_callbacks_state_length_check", sql`char_length(${t.state}) BETWEEN 1 AND 32768`),
+  check("approval_callbacks_attempts_check", sql`${t.attempts} BETWEEN 0 AND 10`),
+  check("approval_callbacks_last_error_length_check", sql`${t.lastError} IS NULL OR char_length(${t.lastError}) <= 200`),
+  check("approval_callbacks_occurred_check", sql`(${t.deliveryStatus} = 'WAITING') = (${t.occurredAt} IS NULL)`),
+  check("approval_callbacks_running_lease_check", sql`${t.deliveryStatus} <> 'RUNNING' OR ${t.leaseExpiresAt} IS NOT NULL`),
+  check("approval_callbacks_completed_check", sql`(${t.deliveryStatus} = 'DELIVERED') = (${t.completedAt} IS NOT NULL)`),
+  check("approval_callbacks_dead_lettered_check", sql`(${t.deliveryStatus} = 'DEAD_LETTER') = (${t.deadLetteredAt} IS NOT NULL)`),
 ]);
 
 export const artefacts = pgTable("artefacts", {
@@ -228,7 +244,12 @@ export const jobs = pgTable("jobs", {
   lastError: text("last_error"),
   createdAt,
   completedAt: timestamp("completed_at", { withTimezone: true }),
-}, (t) => [uniqueIndex("jobs_dedupe_uidx").on(t.type, t.dedupeKey), index("jobs_ready_idx").on(t.state, t.availableAt)]);
+}, (t) => [
+  uniqueIndex("jobs_dedupe_uidx").on(t.type, t.dedupeKey),
+  index("jobs_ready_idx").on(t.state, t.availableAt),
+  check("jobs_attempts_check", sql`${t.attempts} >= 0`),
+  check("jobs_last_error_length_check", sql`${t.lastError} IS NULL OR char_length(${t.lastError}) <= 500`),
+]);
 
 export const forwardingDestinations = pgTable("forwarding_destinations", {
   id: identifier("id").primaryKey(),

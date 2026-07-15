@@ -136,6 +136,10 @@ importers:
       zod:
         specifier: ^4.4.0
         version: 4.4.3
+    devDependencies:
+      '@mayi/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
 
   apps/site:
     dependencies:
