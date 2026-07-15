@@ -39,7 +39,7 @@
     "lint": "eslint .",
     "release": "node ./scripts/release-packages.mjs",
     "release:dry-run": "node ./scripts/release-packages.mjs --dry-run",
-    "version-packages": "changeset version && pnpm install --lockfile-only"
+    "version-packages": "changeset version && corepack pnpm install --lockfile-only"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
