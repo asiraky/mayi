@@ -37,7 +37,7 @@ const pending = await mayi.approvals.request({
   explanation: "Deploy the release that passed CI.",
   expiresInSeconds: 900,
   callback: { url: "https://agent.example.com/mayi/callback", state: sealedCallbackState },
-}, { idempotencyKey: crypto.randomUUID() });
+}, { idempotencyKey: eveRequestId });
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
 

@@ -107,6 +107,8 @@ describe("MayiClient approvals.request", () => {
     ["malformed", { nope: true }],
     ["wrong state", { ...pendingApproval, state: "APPROVED" }],
     ["unsealed", { ...pendingApproval, sealedAt: null }],
+    ["missing action digest", { ...pendingApproval, actionDigest: null }],
+    ["missing manifest digest", { ...pendingApproval, manifestDigest: null }],
   ])("rejects a %s success response", async (_label, responseBody) => {
     const client = new MayiClient({
       origin: "https://mayi.example",
@@ -258,5 +260,42 @@ describe("MayiClient artifact and browser workflows", () => {
     await client.approval("ApprovalAbcd");
     expect(getAccessToken).toHaveBeenCalledOnce();
     expect(new Headers(fetchMock.mock.calls[0]![1]?.headers).get("authorization")).toBe("Bearer read-token");
+  });
+
+  it("requires bearer authentication to cancel an approval", async () => {
+    const unauthenticatedFetch = vi.fn<MayiFetch>();
+    const unauthenticatedClient = new MayiClient({ origin: "https://mayi.example", fetch: unauthenticatedFetch });
+
+    await expect(unauthenticatedClient.cancel("ApprovalAbcd")).rejects.toMatchObject({
+      name: "MayiAuthenticationError",
+      code: "ACCESS_TOKEN_PROVIDER_REQUIRED",
+    });
+    expect(unauthenticatedFetch).not.toHaveBeenCalled();
+
+    const getAccessToken = vi.fn(async () => "cancel-token");
+    const authenticatedFetch = vi.fn<MayiFetch>(async () => jsonResponse({ ...pendingApproval, state: "CANCELLED" }));
+    const authenticatedClient = new MayiClient({
+      origin: "https://mayi.example",
+      getAccessToken,
+      fetch: authenticatedFetch,
+    });
+
+    await authenticatedClient.cancel("ApprovalAbcd");
+    expect(getAccessToken).toHaveBeenCalledOnce();
+    expect(new Headers(authenticatedFetch.mock.calls[0]![1]?.headers).get("authorization"))
+      .toBe("Bearer cancel-token");
+  });
+
+  it("keeps human decisions cookie-authenticated when a provider is configured", async () => {
+    const getAccessToken = vi.fn(async () => "agent-token");
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse({ ...pendingApproval, state: "APPROVED" }));
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await client.decide("ApprovalAbcd", { decision: "APPROVED" });
+
+    expect(getAccessToken).not.toHaveBeenCalled();
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(new Headers(init?.headers).has("authorization")).toBe(false);
+    expect(init?.credentials).toBe("include");
   });
 });

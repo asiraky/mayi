@@ -23,7 +23,12 @@ export interface ApprovalRequestOptions {
   idempotencyKey: string;
 }
 
-export type PendingApproval = Approval & { state: "PENDING"; sealedAt: string };
+export type PendingApproval = Approval & {
+  state: "PENDING";
+  sealedAt: string;
+  actionDigest: string;
+  manifestDigest: string;
+};
 export type UploadedArtefact = Omit<Artefact, "ordinal">;
 export type ArtefactMediaType = "application/pdf" | "image/png" | "image/jpeg" | "image/webp";
 
@@ -112,7 +117,12 @@ function parseApproval(value: unknown): Approval {
 
 function parsePendingApproval(value: unknown): PendingApproval {
   const approval = parseApproval(value);
-  if (approval.state !== "PENDING" || approval.sealedAt === null) throw new MayiResponseError();
+  if (
+    approval.state !== "PENDING"
+    || approval.sealedAt === null
+    || approval.actionDigest === null
+    || approval.manifestDigest === null
+  ) throw new MayiResponseError();
   return approval as PendingApproval;
 }
 
@@ -245,11 +255,11 @@ export class MayiClient {
   }
 
   decide(id: string, input: Decision) {
-    return this.request(`/api/approvals/${encodeURIComponent(id)}/decision`, { method: "POST", body: JSON.stringify(input) }, "optional-access-token") as Promise<Approval>;
+    return this.request(`/api/approvals/${encodeURIComponent(id)}/decision`, { method: "POST", body: JSON.stringify(input) }) as Promise<Approval>;
   }
 
   cancel(id: string) {
-    return this.request(`/api/approvals/${encodeURIComponent(id)}/cancel`, { method: "POST" }, "optional-access-token") as Promise<Approval>;
+    return this.request(`/api/approvals/${encodeURIComponent(id)}/cancel`, { method: "POST" }, "required-access-token") as Promise<Approval>;
   }
 
   activity() { return this.request("/api/activity") as Promise<Array<Record<string, unknown>>>; }
