@@ -22,6 +22,34 @@
       "when": 1784028666719,
       "tag": "0002_tenant_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784091862322,
+      "tag": "0003_oauth_callback_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784092742583,
+      "tag": "0004_approval_request_callbacks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784094100666,
+      "tag": "0005_callback_outbox_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784097467539,
+      "tag": "0006_callback_lease_fencing",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ export function getConfig() {
     receiptAudience: process.env.RECEIPT_AUDIENCE ?? "local-executor",
     receiptPrivateJwk: process.env.RECEIPT_PRIVATE_JWK,
     receiptPublicJwk: process.env.RECEIPT_PUBLIC_JWK,
+    receiptPreviousPublicJwks: process.env.RECEIPT_PREVIOUS_PUBLIC_JWKS,
     bootstrapSecret: process.env.BOOTSTRAP_SECRET,
     retentionDays: Number(process.env.RETENTION_DAYS ?? 90),
   };

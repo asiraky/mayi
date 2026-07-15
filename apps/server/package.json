@@ -22,5 +22,8 @@
     "nitropack": "2.13.4",
     "postgres": "^3.4.0",
     "zod": "^4.4.0"
+  },
+  "devDependencies": {
+    "@mayi/sdk": "workspace:*"
   }
 }

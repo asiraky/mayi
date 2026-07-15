@@ -1,3 +1,4 @@
+import type { Action } from "@mayi/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
@@ -13,7 +14,8 @@ export const approvalState = pgEnum("approval_state", ["DRAFT", "PENDING", "APPR
 export const enforcementMode = pgEnum("enforcement_mode", ["cooperative", "verified", "consumed"]);
 export const destinationMode = pgEnum("destination_mode", ["notify_only", "may_decide"]);
 export const destinationType = pgEnum("destination_type", ["WEBHOOK", "EMAIL"]);
-export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "FAILED"]);
+export const callbackDeliveryStatus = pgEnum("callback_delivery_status", ["WAITING", "READY", "RUNNING", "FAILED", "DELIVERED", "DEAD_LETTER"]);
+export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTER"]);
 
 const createdAt = timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
 
@@ -54,11 +56,24 @@ export const sessions = pgTable("sessions", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
+export const oauthClients = pgTable("oauth_clients", {
+  id: identifier("id").primaryKey(),
+  name: text("name").notNull(),
+  redirectUris: text("redirect_uris").array().notNull(),
+  approvalCallbackUris: text("approval_callback_uris").array().notNull(),
+  registrationIpHash: text("registration_ip_hash").notNull(),
+  createdAt,
+}, (t) => [
+  index("oauth_clients_registration_ip_created_idx").on(t.registrationIpHash, t.createdAt),
+  check("oauth_clients_redirect_uri_count_check", sql`cardinality(${t.redirectUris}) BETWEEN 1 AND 5`),
+  check("oauth_clients_approval_callback_uri_count_check", sql`cardinality(${t.approvalCallbackUris}) <= 10`),
+]);
+
 export const agents = pgTable("agents", {
   id: identifier("id").primaryKey(),
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   name: text("name").notNull(),
-  clientId: text("client_id"),
+  clientId: identifier("client_id").references(() => oauthClients.id),
   scopes: text("scopes").array().notNull(),
   credentialHash: text("credential_hash"),
   credentialExpiresAt: timestamp("credential_expires_at", { withTimezone: true }),
@@ -66,14 +81,7 @@ export const agents = pgTable("agents", {
   createdAt,
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
-}, (t) => [index("agents_workspace_idx").on(t.workspaceId)]);
-
-export const oauthClients = pgTable("oauth_clients", {
-  id: identifier("id").primaryKey(),
-  name: text("name").notNull(),
-  redirectUris: text("redirect_uris").array().notNull(),
-  createdAt,
-});
+}, (t) => [index("agents_workspace_idx").on(t.workspaceId), index("agents_client_idx").on(t.clientId)]);
 
 export const oauthCodes = pgTable("oauth_codes", {
   codeHash: text("code_hash").primaryKey(),
@@ -104,7 +112,7 @@ export const approvals = pgTable("approvals", {
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   agentId: identifier("agent_id").references(() => agents.id).notNull(),
   state: approvalState("state").default("DRAFT").notNull(),
-  action: jsonb("action").notNull(),
+  action: jsonb("action").$type<Action>().notNull(),
   explanation: text("explanation").notNull(),
   enforcement: enforcementMode("enforcement").default("cooperative").notNull(),
   actionDigest: text("action_digest"),
@@ -121,6 +129,35 @@ export const approvals = pgTable("approvals", {
 }, (t) => [
   index("approvals_workspace_state_idx").on(t.workspaceId, t.state, t.createdAt),
   check("approval_digest_sealed_check", sql`${t.state} = 'DRAFT' OR (${t.actionDigest} IS NOT NULL AND ${t.manifestDigest} IS NOT NULL AND ${t.sealedAt} IS NOT NULL)`),
+]);
+
+export const approvalCallbacks = pgTable("approval_callbacks", {
+  id: identifier("id").primaryKey(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  state: text("state").notNull(),
+  deliveryStatus: callbackDeliveryStatus("delivery_status").default("WAITING").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }),
+  createdAt,
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("approval_callbacks_approval_uidx").on(t.approvalId),
+  index("approval_callbacks_workspace_idx").on(t.workspaceId, t.createdAt),
+  index("approval_callbacks_delivery_idx").on(t.deliveryStatus, t.nextAttemptAt),
+  check("approval_callbacks_url_length_check", sql`char_length(${t.url}) BETWEEN 1 AND 2048`),
+  check("approval_callbacks_state_length_check", sql`char_length(${t.state}) BETWEEN 1 AND 32768`),
+  check("approval_callbacks_attempts_check", sql`${t.attempts} BETWEEN 0 AND 10`),
+  check("approval_callbacks_last_error_length_check", sql`${t.lastError} IS NULL OR char_length(${t.lastError}) <= 200`),
+  check("approval_callbacks_occurred_check", sql`(${t.deliveryStatus} = 'WAITING') = (${t.occurredAt} IS NULL)`),
+  check("approval_callbacks_running_lease_check", sql`${t.deliveryStatus} <> 'RUNNING' OR ${t.leaseExpiresAt} IS NOT NULL`),
+  check("approval_callbacks_completed_check", sql`(${t.deliveryStatus} = 'DELIVERED') = (${t.completedAt} IS NOT NULL)`),
+  check("approval_callbacks_dead_lettered_check", sql`(${t.deliveryStatus} = 'DEAD_LETTER') = (${t.deadLetteredAt} IS NOT NULL)`),
 ]);
 
 export const artefacts = pgTable("artefacts", {
@@ -204,10 +241,16 @@ export const jobs = pgTable("jobs", {
   attempts: integer("attempts").default(0).notNull(),
   availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
   lockedAt: timestamp("locked_at", { withTimezone: true }),
+  leaseToken: identifier("lease_token"),
   lastError: text("last_error"),
   createdAt,
   completedAt: timestamp("completed_at", { withTimezone: true }),
-}, (t) => [uniqueIndex("jobs_dedupe_uidx").on(t.type, t.dedupeKey), index("jobs_ready_idx").on(t.state, t.availableAt)]);
+}, (t) => [
+  uniqueIndex("jobs_dedupe_uidx").on(t.type, t.dedupeKey),
+  index("jobs_ready_idx").on(t.state, t.availableAt),
+  check("jobs_attempts_check", sql`${t.attempts} >= 0`),
+  check("jobs_last_error_length_check", sql`${t.lastError} IS NULL OR char_length(${t.lastError}) <= 500`),
+]);
 
 export const forwardingDestinations = pgTable("forwarding_destinations", {
   id: identifier("id").primaryKey(),

@@ -1,6 +1,7 @@
 {
   "name": "@mayi/mcp",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "bin": { "mayi-mcp": "./src/stdio.ts" },
   "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },

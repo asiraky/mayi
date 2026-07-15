@@ -15,7 +15,7 @@ export default defineNitroConfig({
     "/.well-known/**": { cors: true },
   },
   runtimeConfig: {
-    databaseUrl: process.env.DATABASE_URL,
+    ...(process.env.DATABASE_URL ? { databaseUrl: process.env.DATABASE_URL } : {}),
     publicOrigin: process.env.PUBLIC_ORIGIN ?? "http://localhost:3000",
   },
 });

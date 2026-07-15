@@ -1,10 +1,11 @@
-import { CreateApproval, Id, canonicalDigest, createId } from "@mayi/contracts";
+import { actionName, CreateApproval, Id, canonicalDigest, createId } from "@mayi/contracts";
 import { freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "@mayi/domain";
 import { defineEventHandler, readBody } from "h3";
 import { z } from "zod";
 import { audit, requireAgent } from "../utils/auth";
 import { database } from "../utils/runtime";
 import { serializeApproval } from "../utils/serialize";
+import { activateApprovalCallback } from "../utils/callback-outbox";
 
 const Call = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]).optional(), method: z.string(), params: z.record(z.string(), z.unknown()).optional() });
 
@@ -54,7 +55,7 @@ export default defineEventHandler(async (event) => {
       for (const row of eligible) await sql`insert into eligible_approvers (approval_id, workspace_id, user_id) values (${storedApprovalId}, ${auth.workspaceId}, ${row.user_id})`;
       await sql`insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at) values (${auth.workspaceId}, ${auth.agentId}, 'approval.create', ${idempotencyKey}, ${payloadHash}, ${JSON.stringify({ id: storedApprovalId })}::jsonb, now() + interval '24 hours')`;
       await sql`insert into jobs (id, workspace_id, type, dedupe_key, payload) values (${createId()}, ${auth.workspaceId}, 'push.approval_pending', ${storedApprovalId}, ${JSON.stringify({ approvalId: storedApprovalId })}::jsonb) on conflict do nothing`;
-      const rules = await sql`select r.destination_id, d.type from forwarding_rules r join forwarding_destinations d on d.id = r.destination_id where r.workspace_id = ${auth.workspaceId} and r.active and d.active and d.verified_at is not null and (r.action_kind = '*' or r.action_kind = ${input.action.kind})`;
+      const rules = await sql`select r.destination_id, d.type from forwarding_rules r join forwarding_destinations d on d.id = r.destination_id where r.workspace_id = ${auth.workspaceId} and r.active and d.active and d.verified_at is not null and (r.action_kind = '*' or r.action_kind = ${actionName(input.action)})`;
       for (const rule of rules) {
         const deliveries = await sql`insert into forwarding_deliveries (id, workspace_id, approval_id, destination_id, origin_id) values (${createId()}, ${auth.workspaceId}, ${storedApprovalId}, ${rule.destination_id}, ${storedApprovalId}) on conflict do nothing returning id`;
         if (deliveries[0]) await sql`insert into jobs (id, workspace_id, type, dedupe_key, payload) values (${createId()}, ${auth.workspaceId}, ${rule.type === "EMAIL" ? "email.approval_pending" : "webhook.approval_pending"}, ${`${storedApprovalId}:${rule.destination_id}`}, ${JSON.stringify({ approvalId: storedApprovalId, destinationId: String(rule.destination_id), deliveryId: String(deliveries[0].id) })}::jsonb) on conflict do nothing`;
@@ -73,7 +74,16 @@ export default defineEventHandler(async (event) => {
   if (name === "cancel_approval") {
     if (!auth.scopes.includes("approval:cancel")) return result(request.id, { isError: true, content: [{ type: "text", text: "Missing approval:cancel scope" }] });
     const id = Id.parse(args.id);
-    await database().sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id} and workspace_id = ${auth.workspaceId} and agent_id = ${auth.agentId} and state in ('DRAFT','PENDING')`;
+    await database().sql.begin("isolation level serializable", async (sql) => {
+      const rows = await sql`
+        select id from approvals where id = ${id} and workspace_id = ${auth.workspaceId}
+          and agent_id = ${auth.agentId} and state in ('DRAFT','PENDING') for update
+      `;
+      if (!rows[0]) return;
+      await sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id}`;
+      await activateApprovalCallback(sql, id);
+      await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.cancelled", subjectType: "approval", subjectId: id }, sql);
+    });
     return result(request.id, toolResult(await serializeApproval(auth.workspaceId, id)));
   }
   return result(request.id, { isError: true, content: [{ type: "text", text: "Unknown tool" }] });

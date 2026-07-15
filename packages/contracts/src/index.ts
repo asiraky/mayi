@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { Action } from "./action";
 import { Id } from "./id";
 
+export * from "./action";
+export * from "./approval-callback";
 export * from "./canonical";
 export * from "./id";
 
@@ -9,17 +12,6 @@ export type ApprovalState = z.infer<typeof ApprovalState>;
 
 export const EnforcementMode = z.enum(["cooperative", "verified", "consumed"]);
 export type EnforcementMode = z.infer<typeof EnforcementMode>;
-
-export const JsonValue: z.ZodType<unknown> = z.json();
-
-export const Action = z.object({
-  kind: z.string().min(1).max(100),
-  version: z.string().min(1).max(32),
-  audience: z.string().min(1).max(255),
-  parameters: z.record(z.string(), JsonValue),
-  resourceVersion: z.string().max(255).optional(),
-});
-export type Action = z.infer<typeof Action>;
 
 export const Artefact = z.object({
   id: Id,
