@@ -25,3 +25,6 @@ BUILD_PLAN.md
 # the tree is exactly the thing that gets shipped somewhere it is not licensed for.
 apps/*/public/theme.js
 apps/*/public/fonts/
+
+# Working notes, not part of the repository.
+PRODUCT.md
