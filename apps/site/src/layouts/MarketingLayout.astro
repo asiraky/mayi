@@ -1,0 +1,35 @@
+---
+import { Font } from "astro:assets";
+import "../styles/tailwind.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#ecedeb" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    {/* Blocking and ahead of the fonts on purpose: it must set the `dark` class before
+        the first paint. `is:inline` keeps it a plain external tag — the CSP forbids
+        inline script, and Astro would otherwise try to bundle it. */}
+    <script is:inline src="/theme.js"></script>
+    <Font cssVariable="--font-suisse-intl" preload />
+    <Font cssVariable="--font-geist-mono" preload />
+  </head>
+  <body
+    class="min-h-screen overflow-x-hidden bg-background font-suisse text-foreground antialiased selection:bg-primary selection:text-primary-foreground"
+  >
+    <slot />
+  </body>
+</html>
