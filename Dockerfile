@@ -1,4 +1,4 @@
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -16,7 +16,7 @@ COPY apps/web apps/web
 COPY packages packages
 RUN pnpm --filter @mayi/server build
 
-FROM node:22-alpine
+FROM node:26-alpine
 RUN addgroup -S mayi && adduser -S mayi -G mayi
 WORKDIR /app
 COPY --from=build --chown=mayi:mayi /app/apps/server/.output ./
