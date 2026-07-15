@@ -2,33 +2,85 @@
 
 ## Shared requirements
 
-Provide PostgreSQL 15+, an immutable private object store, `PUBLIC_ORIGIN`, persistent Ed25519 receipt JWKs, `CRON_SECRET`, and provider credentials. Apply migrations before serving new code. Production must use HTTPS and secure cookies. Configure `CONSUMER_API_KEYS` as a JSON map from receipt audience to relying-party secret when consumed receipts are enabled.
+All production targets require PostgreSQL 15+, a private durable object store, HTTPS, and the following runtime configuration:
+
+- `PUBLIC_ORIGIN`, with `SESSION_COOKIE_SECURE=true` when it uses HTTPS;
+- persistent `RECEIPT_PRIVATE_JWK` and `RECEIPT_PUBLIC_JWK` values generated with `pnpm --filter @mayi/receipts generate-key`;
+- a random `CRON_SECRET` of at least 16 characters; and
+- the credentials for each enabled provider.
+
+Set `CONSUMER_API_KEYS` to a JSON object mapping receipt audiences to relying-party secrets only when consumed receipts are enabled. The optional push, email, and first-owner settings are documented in `.env.example`.
+
+Back up the database and object store, then apply the committed Drizzle migrations before new application code serves production traffic. After deployment, verify `/api/health` and `/api/ready`. Receipt keys and `CRON_SECRET` must persist across deployments; rotating them is a separate operation described in `docs/OPERATIONS.md`.
 
 ## Cloudflare
 
 The public site and application are separate Workers:
 
-- `mayi-site` serves the static Astro landing page and Markdown documentation at `mayi.sh`. Build it with `pnpm --filter @mayi/site build` and deploy with `pnpm deploy:site`.
-- `may-i` serves the authenticated application and API at `app.mayi.sh`.
+- `mayi-site` serves the Astro landing page and Markdown documentation at `mayi.sh`. `pnpm deploy:site` builds and deploys it with `apps/site/wrangler.jsonc`.
+- `may-i` serves the authenticated application and API at `app.mayi.sh` using `wrangler.toml`.
 
-This layout can run within free allowances while usage is modest. Static asset requests are free and unlimited. The application is still subject to the Workers, Hyperdrive, R2, and PostgreSQL provider limits. A Neon Free database is a practical default. Use its direct connection string as the Hyperdrive origin because Hyperdrive supplies the connection pool.
+Static asset requests are free and unlimited, but the application remains subject to the current Workers, Hyperdrive, R2, and PostgreSQL-provider limits. Check the [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [Hyperdrive pricing](https://developers.cloudflare.com/hyperdrive/platform/pricing/), and [R2 pricing](https://developers.cloudflare.com/r2/pricing/) before relying on a free allowance. A small Neon database is a practical starting point. Hyperdrive provides connection pooling, so use the direct, non-pooled Neon connection string as its origin.
 
-For the application Worker, first activate R2 for the Cloudflare account. Create a private bucket named `may-i-artefacts`, then create a Hyperdrive configuration named `may-i` with query caching disabled and a PostgreSQL connection string. Replace the Hyperdrive ID in `wrangler.toml`, set secrets with `wrangler secret put`, run `pnpm --filter @mayi/server build:cloudflare`, and deploy. The first successful deployment provisions the `app.mayi.sh` custom domain. The Worker wrapper handles the configured minute Cron Trigger and invokes durable-job recovery with `CRON_SECRET`.
+For the application Worker:
 
-The non-secret runtime configuration is committed in `wrangler.toml`. Store persistent `RECEIPT_PRIVATE_JWK` and `RECEIPT_PUBLIC_JWK` values and a random `CRON_SECRET` as secrets on GitHub's protected `production` environment. The deployment workflow validates them and uploads them to the Worker with the new version; do not commit them.
+1. Create the private bucket with `pnpm exec wrangler r2 bucket create may-i-artefacts`.
+2. Create a cache-disabled Hyperdrive configuration with `pnpm exec wrangler hyperdrive create may-i --connection-string="$DATABASE_URL" --caching-disabled`.
+3. Replace `REPLACE_WITH_HYPERDRIVE_ID` in `wrangler.toml` with the returned ID. Query caching must remain disabled because authorization reads require read-after-write consistency.
+4. Apply migrations with the direct PostgreSQL URL: `DATABASE_URL="$DATABASE_URL" pnpm db:migrate`.
+5. Store `RECEIPT_PRIVATE_JWK`, `RECEIPT_PUBLIC_JWK`, and `CRON_SECRET` with `pnpm exec wrangler secret put NAME --config wrangler.toml`. Store optional provider credentials the same way.
+6. Run `pnpm --filter @mayi/server build:cloudflare`, then `pnpm exec wrangler deploy --config wrangler.toml`.
 
-Pushes to `main` deploy only after CI passes. Configure the GitHub `production` environment with secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NEON_DATABASE_URL`, `RECEIPT_PRIVATE_JWK`, `RECEIPT_PUBLIC_JWK`, and `CRON_SECRET`, plus the `CLOUDFLARE_HYPERDRIVE_ID` environment variable. `NEON_DATABASE_URL` is the direct, non-pooled Neon connection string and is used only by the deployment runner. Every application deployment synchronizes the Hyperdrive origin and disables its query cache, applies committed Drizzle migrations, and then deploys the Worker. A failed synchronization or migration stops the deployment. The same pipeline can be started manually with **Actions → CI → Run workflow**.
+The first successful deployment provisions the `app.mayi.sh` custom domain. The Worker Cron Trigger runs every minute and calls the authenticated durable-job recovery endpoint.
 
-Set repository variable `CLOUDFLARE_SITE_DEPLOY_ENABLED` to `true` for the public site and `CLOUDFLARE_DEPLOY_ENABLED` to `true` for the application. Protect the production environment with reviewers if the repository has more than one trusted maintainer.
+### GitHub deployment
+
+Relevant pushes to `main` deploy only after the `verify` job passes. Configure GitHub's protected `production` environment with these secrets:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `NEON_DATABASE_URL` (the direct, non-pooled URL used by the deployment runner)
+- `RECEIPT_PRIVATE_JWK`
+- `RECEIPT_PUBLIC_JWK`
+- `CRON_SECRET`
+
+Add `CLOUDFLARE_HYPERDRIVE_ID` as an environment variable, not a secret. The workflow synchronizes the Hyperdrive origin with query caching disabled, applies migrations, substitutes the binding ID, and deploys the Worker and its secrets. A failure before the deploy step leaves the previous Worker running. Secrets previously added directly to the Worker, such as optional provider credentials, are preserved when the workflow deploys its secrets file.
+
+Set repository variable `CLOUDFLARE_SITE_DEPLOY_ENABLED=true` to enable public-site deployments and `CLOUDFLARE_DEPLOY_ENABLED=true` to enable application deployments. The same pipeline can be started with **Actions -> CI -> Run workflow**; a manual run attempts both deployments when their enable variables are set. Protect the `production` environment with reviewers when more than one maintainer can deploy.
 
 ## Vercel
 
-Set the same PostgreSQL and S3-compatible environment variables, then deploy from the repository root. `vercel.json` builds the Nitro Vercel output and invokes the durable-job recovery endpoint every minute. Set the cron authorization integration to the same runner secret.
+Create a Vercel project from the repository root and keep the Framework Preset set to **Other**. The committed `vercel.json` builds Nitro's Build Output API output and registers `/api/internal/jobs/drain` every minute. Set the shared runtime values plus `DATABASE_URL`, `OBJECT_STORE=s3`, and all `S3_*` values from `.env.example` in the Vercel project. Set `CRON_SECRET`; Vercel automatically sends it as `Authorization: Bearer <CRON_SECRET>` to the job endpoint.
+
+The every-minute schedule requires a paid Vercel plan: Hobby cron jobs can run only once per day. If daily recovery is acceptable, change the committed schedule before deploying on Hobby. See [Vercel's cron limits](https://vercel.com/docs/cron-jobs/manage-cron-jobs#cron-jobs-accuracy).
+
+Vercel does not apply database migrations. A production release pipeline must build and stage the deployment, back up and migrate PostgreSQL from a trusted runner, and only then promote the new deployment. Do not enable an automatic production deployment that can serve new code before its migration succeeds.
 
 ## VPS
 
-Generate receipt keys, set the `.env` values, then run `docker compose --profile full up -d`. For TLS, set `MAYI_DOMAIN` and enable the `tls` profile. Existing PostgreSQL/S3 services can replace the Compose volumes. No telemetry or Cloudflare service is required.
+Copy `.env.example` to `.env`, generate the receipt keys, and set at least `PUBLIC_ORIGIN`, `SESSION_COOKIE_SECURE`, both receipt JWKs, and `CRON_SECRET`. For TLS, also set `MAYI_DOMAIN` to the public hostname. The Compose PostgreSQL and application ports bind to loopback; Caddy is the public entry point when TLS is enabled.
+
+Start PostgreSQL and apply migrations before starting the application:
+
+```sh
+docker compose up -d postgres
+pnpm install --frozen-lockfile
+DATABASE_URL=postgres://mayi:mayi@localhost:5432/mayi pnpm db:migrate
+docker compose --profile full up -d
+```
+
+For Caddy-managed TLS, use both profiles:
+
+```sh
+docker compose --profile full --profile tls up -d
+```
+
+Configure the host scheduler to send an authenticated `POST` to `/api/internal/jobs/drain` once per minute with `Authorization: Bearer <CRON_SECRET>`. Without this scheduler, pending notifications, forwarding retries, and approval expiry recovery do not run. Keep the bearer value in a root-readable environment or credential file rather than embedding it in a world-readable crontab.
+
+An external PostgreSQL service can replace the bundled service after updating the application's `DATABASE_URL` and Compose dependency. For S3-compatible storage, set `OBJECT_STORE=s3` and the `S3_*` values; the mounted `OBJECT_DIRECTORY` is then ignored. No telemetry or Cloudflare service is required.
 
 ## Native releases
 
-Replace the EAS project ID and application identifiers in `apps/mobile/app.json`, configure APNs/FCM in EAS, then use the development profile for device notification tests. Production submission requires the operator's Apple and Google accounts; those credentials are intentionally not committed.
+Replace the EAS project ID, iOS bundle identifier, Android package, and placeholder associated-link domains in `apps/mobile/app.json`. Configure APNs and FCM credentials in EAS. The development profile is intended for device-notification tests.
+
+Production builds are triggered by a `v*` Git tag only when repository variable `EAS_RELEASE_ENABLED=true`. Store the EAS automation token as the GitHub `EXPO_TOKEN` secret; this is distinct from the server's optional `EXPO_ACCESS_TOKEN` used to send push notifications. Submission still requires the operator's Apple and Google accounts, which are intentionally not committed.
