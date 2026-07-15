@@ -75,9 +75,26 @@ export const Session = z.object({
 });
 export type Session = z.infer<typeof Session>;
 
+/*
+ * Signup only. Signin deliberately stays min(1): it verifies a password that already
+ * exists rather than enforcing policy on it, so tightening the rules here never locks
+ * anyone out of an account they already have, and a rejection at signin cannot be used
+ * to infer the policy.
+ *
+ * The messages are per-rule so the form can say which rule failed rather than restating
+ * all of them on every keystroke.
+ */
+export const Password = z
+  .string()
+  .min(8, "Use at least 8 characters.")
+  .max(256)
+  .regex(/[A-Za-z]/, "Include a letter.")
+  .regex(/[0-9]/, "Include a number.")
+  .regex(/[^A-Za-z0-9]/, "Include a special character.");
+
 export const Signup = z.object({
   email: z.email(),
-  password: z.string().min(12).max(256),
+  password: Password,
   displayName: z.string().min(1).max(100),
   bootstrapSecret: z.string().min(20).optional(),
 });

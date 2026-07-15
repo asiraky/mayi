@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@import "@mayi/theme/tokens.css";
+
+/* Font families are self-hosted by Astro's font pipeline (see astro.config.mjs).
+   The --font-* variables it emits are re-exposed here as Tailwind font utilities.
+   Colour and the pending-dot motion live in @mayi/theme, shared with the app. */
+@theme {
+  --font-suisse: var(--font-suisse-intl);
+  /* Overrides Tailwind's stock mono stack, so `font-mono` is the only mono in play. */
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Markdown from the docs collection renders as bare HTML, so the prose scale
+   lives here rather than as utilities on tags we do not author. Colours are the
+   shared tokens, so the docs follow the theme without a second palette. */
+@layer components {
+  .prose {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--body);
+  }
+
+  .prose > * {
+    max-width: 68ch;
+  }
+
+  .prose h2,
+  .prose h3 {
+    color: var(--foreground);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .prose h2 {
+    margin: 2.6em 0 0.6em;
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    line-height: 1.15;
+  }
+
+  .prose h3 {
+    margin: 2em 0 0.5em;
+    font-size: 1.15rem;
+  }
+
+  .prose p,
+  .prose ul,
+  .prose ol {
+    margin: 1.1em 0;
+  }
+
+  .prose li {
+    margin: 0.4em 0;
+  }
+
+  .prose strong {
+    color: var(--foreground);
+    font-weight: 600;
+  }
+
+  .prose a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-color: color-mix(in srgb, var(--primary) 35%, transparent);
+  }
+
+  .prose a:hover {
+    text-decoration-color: var(--primary);
+  }
+
+  .prose code {
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    background: var(--muted);
+    color: var(--foreground);
+    font-family: var(--font-geist-mono);
+    font-size: 0.86em;
+  }
+
+  .prose pre {
+    max-width: 100%;
+    overflow-x: auto;
+    margin: 1.6em 0;
+    padding: 20px 24px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--muted);
+  }
+
+  .prose pre code {
+    padding: 0;
+    background: transparent;
+    font-size: 12px;
+    line-height: 1.75;
+  }
+
+  .prose blockquote {
+    margin: 1.6em 0;
+    padding-left: 20px;
+    border-left: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
+    color: var(--muted-foreground);
+  }
+
+  .prose hr {
+    margin: 3em 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

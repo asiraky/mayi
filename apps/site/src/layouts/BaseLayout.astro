@@ -1,5 +1,8 @@
 ---
-import "../styles/global.css";
+import { Font } from "astro:assets";
+import ThemeToggle from "../components/ThemeToggle.astro";
+import { APP_URL } from "../consts";
+import "../styles/tailwind.css";
 
 interface Props {
   title: string;
@@ -16,25 +19,42 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="description" content={description} />
-    <meta name="theme-color" content="#f4f1e8" />
+    <meta name="theme-color" content="#ecedeb" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
+    {/* Blocking and ahead of the fonts on purpose: it must set the `dark` class before
+        the first paint. `is:inline` keeps it a plain external tag — the CSP forbids
+        inline script, and Astro would otherwise try to bundle it. */}
+    <script is:inline src="/theme.js"></script>
+    <Font cssVariable="--font-suisse-intl" preload />
+    <Font cssVariable="--font-geist-mono" preload />
   </head>
-  <body>
-    <header class="site-header">
-      <a class="wordmark" href="/" aria-label="May I? home">May I?</a>
-      <nav aria-label="Main navigation">
-        <a href="/docs">Docs</a>
-        <a href="https://github.com/asiraky/mayi">GitHub</a>
-        <a class="button button-small" href="https://app.mayi.sh">Open app</a>
+  <body
+    class="min-h-screen overflow-x-hidden bg-background font-suisse text-foreground antialiased selection:bg-primary selection:text-primary-foreground"
+  >
+    <header class="mx-auto flex w-[min(980px,100%-3rem)] items-center justify-between pt-8">
+      <a href="/" class="text-[15px] font-semibold" aria-label="May I? home">May I?</a>
+      <nav aria-label="Main" class="flex items-center gap-6 text-[13px] text-muted-foreground">
+        <a href="/docs" class="hover:text-foreground">Docs</a>
+        <a href="https://github.com/asiraky/mayi" class="hidden hover:text-foreground sm:block">Source</a>
+        <a href={APP_URL} class="text-primary-ink transition-colors hover:text-primary-ink-hover">Open app</a>
+        <ThemeToggle />
       </nav>
     </header>
+
     <main>
       <slot />
     </main>
-    <footer>
-      <span>May I? is open source under Apache-2.0.</span>
-      <a href="https://github.com/asiraky/mayi/blob/main/SECURITY.md">Report a security issue</a>
+
+    <footer class="mt-[8vh] border-t border-border">
+      <div
+        class="mx-auto flex w-[min(980px,100%-3rem)] flex-col gap-2 py-8 text-[13px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
+      >
+        <span>Open source · Apache-2.0 · Self-host it</span>
+        <a href="https://github.com/asiraky/mayi/blob/main/SECURITY.md" class="hover:text-foreground">
+          Report a security issue →
+        </a>
+      </div>
     </footer>
   </body>
 </html>

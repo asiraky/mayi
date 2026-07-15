@@ -15,5 +15,3 @@ The executor still owns enforcement. Before it deploys, deletes, transfers, or c
 3. An eligible person reviews the frozen request in the web or mobile app.
 4. May I? records the decision and issues a short-lived receipt when approved.
 5. The executor verifies the receipt and consumes it when one-time enforcement is required.
-
-Every application ID is a 12-character NanoID containing ASCII letters only.

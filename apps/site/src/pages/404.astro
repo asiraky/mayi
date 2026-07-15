@@ -3,9 +3,14 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 ---
 
 <BaseLayout title="Page not found | May I?" description="The requested page could not be found.">
-  <section class="not-found">
-    <p class="eyebrow">404</p>
-    <h1>That page is not here.</h1>
-    <p>Try the <a href="/">home page</a> or read the <a href="/docs">documentation</a>.</p>
+  <section class="mx-auto w-[min(980px,100%-3rem)] pt-[16vh] pb-[16vh]">
+    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">404</p>
+    <h1 class="mt-8 max-w-[14ch] text-[clamp(2.4rem,6vw,4.4rem)] leading-[1.02] font-semibold">
+      That page is not here.
+    </h1>
+    <p class="mt-8 max-w-[46ch] text-[17px] leading-[1.6] text-body">
+      Try the <a href="/" class="underline decoration-foreground/25 underline-offset-4 hover:decoration-foreground">home page</a> or read
+      the <a href="/docs" class="underline decoration-foreground/25 underline-offset-4 hover:decoration-foreground">documentation</a>.
+    </p>
   </section>
 </BaseLayout>

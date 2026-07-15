@@ -3,7 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@mayi/contracts": "workspace:*", "@mayi/sdk": "workspace:*", "@vitejs/plugin-react": "latest", "vite": "^8.1.0", "react": "^19.2.7", "react-dom": "^19.2.7" },
-  "devDependencies": { "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0" }
+  "scripts": {
+    "sync:theme": "mkdir -p public/fonts && cp ../../packages/theme/theme.js public/theme.js && cp ../../packages/theme/fonts/*.woff2 public/fonts/",
+    "predev": "pnpm sync:theme",
+    "dev": "vite",
+    "prebuild": "pnpm sync:theme",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist-mono": "^5.2.5",
+    "@mayi/contracts": "workspace:*",
+    "@mayi/sdk": "workspace:*",
+    "@mayi/theme": "workspace:*",
+    "@vitejs/plugin-react": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.545.0",
+    "radix-ui": "^1.6.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.3.1",
+    "vite": "^8.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tailwindcss": "^4.3.2"
+  }
 }

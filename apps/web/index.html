@@ -1,1 +1,17 @@
-<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#153d31"><title>May I?</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#ecedeb" />
+    <title>May I?</title>
+    <!-- Blocking, before the app bundle: it sets the `dark` class on <html> ahead of
+         the first paint. Same file the marketing site loads (packages/theme/theme.js,
+         copied in by sync:theme), so both surfaces resolve the theme identically. -->
+    <script src="/theme.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

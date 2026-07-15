@@ -1,0 +1,45 @@
+---
+/*
+ * The click handler lives in /theme.js (copied from packages/theme), which delegates
+ * from the document on [data-theme-toggle] — so this component ships no script of its
+ * own, and the app can reuse the same behaviour by rendering the same attribute.
+ *
+ * Which icon shows is decided in CSS off the `dark` class rather than in JS, so the
+ * button is already correct on first paint instead of correcting itself after hydration.
+ * The label names the action, not the state, because the state is carried by
+ * aria-pressed (set by theme.js).
+ */
+---
+
+<button
+  type="button"
+  data-theme-toggle
+  aria-label="Switch between light and dark theme"
+  class="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+>
+  <svg
+    class="size-4 dark:hidden"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"></path>
+  </svg>
+  <svg
+    class="hidden size-4 dark:block"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="4"></circle>
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+  </svg>
+</button>

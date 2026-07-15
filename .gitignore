@@ -19,3 +19,9 @@ data/
 .DS_Store
 BUILD_PLAN.md
 .claude/worktrees/
+
+# Copied from packages/theme by each app's sync:theme script. The originals are the
+# committed ones; these are build inputs, and a second copy of a licensed typeface in
+# the tree is exactly the thing that gets shipped somewhere it is not licensed for.
+apps/*/public/theme.js
+apps/*/public/fonts/

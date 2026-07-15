@@ -51,17 +51,58 @@ After approval, the executor verifies the signed receipt and recomputes the acti
 
 Requirements: Node 22+, pnpm 10+, and Docker.
 
+Set up once:
+
 ```sh
 cp .env.example .env
 docker compose up -d postgres
 pnpm install
 pnpm db:migrate
-pnpm dev
 ```
 
-Run the browser client with `pnpm dev:web`, or use the server's API directly. Create a signing key with `pnpm --filter @mayi/receipts generate-key` and copy the two JSON values into `.env` before issuing production-like receipts.
+If Postgres fails to start because port 5432 is already taken by another project, set
+`POSTGRES_PORT` in `.env` to a free port and change the port in `DATABASE_URL` to match.
 
-The public landing page and Markdown documentation live in `apps/site`. Run them with `pnpm dev:site`; editing the files under `apps/site/src/content` updates the published content on the next deployment.
+Only the API needs that setup. The marketing site and docs never touch the database, and
+the app only reaches it indirectly, through the API.
+
+There are three front ends and one API, each with its own dev server. They are
+independent — run only the ones you are working on, in separate terminals:
+
+| Command | Serves | URL | Needs |
+| --- | --- | --- | --- |
+| `pnpm dev` | API (nitro) | http://localhost:3000 | Postgres |
+| `pnpm dev:web` | The app (vite) | http://localhost:5173 | `pnpm dev` |
+| `pnpm dev:site` | Marketing + docs (astro) | http://localhost:4321 | nothing |
+| `pnpm dev:mobile` | Mobile (expo) | expo cli | `pnpm dev` |
+
+The app proxies `/api` to port 3000, so it needs `pnpm dev` running alongside it;
+signing in fails otherwise. The marketing site and docs are fully static and need
+nothing else — `pnpm dev:site` on its own is enough to work on content or styling.
+Its "Open app" links point at http://localhost:5173 in dev and at production in a
+build; set `PUBLIC_APP_URL` in `apps/site/.env` to override (self-hosters serving the
+app on their own domain set it at build time).
+
+Note that `pnpm dev` alone also serves the app at http://localhost:3000, but from the
+last `pnpm --filter @mayi/web build` rather than from source — no HMR, and stale until
+you rebuild. Use port 5173 while working on the app; port 3000 is what production
+looks like.
+
+Create a signing key with `pnpm --filter @mayi/receipts generate-key` and copy the two
+JSON values into `.env` before issuing production-like receipts.
+
+If `pnpm db:migrate` fails with `type "approval_state" already exists`, the Docker volume
+holds a schema from before the migrations were last renumbered. Migrations replay from
+`0000` against a database that already has those objects. There is no in-place upgrade;
+recreate the volume, which **destroys the local database**:
+
+```sh
+docker compose down && docker volume rm mayi_postgres-data
+docker compose up -d postgres && pnpm db:migrate
+```
+
+The landing page and Markdown documentation live in `apps/site`; editing the files
+under `apps/site/src/content` updates the published content on the next deployment.
 
 The first normal sign-up creates a personal workspace. Self-hosters may instead set `BOOTSTRAP_SECRET`; while it is set, the first sign-up must send it as `bootstrapSecret`, and the database consumes it atomically.
 

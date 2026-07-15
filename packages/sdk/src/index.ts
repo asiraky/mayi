@@ -1,5 +1,28 @@
 import { createId, type Approval, type CreateApproval, type Decision, type Session } from "@mayi/contracts";
 
+/*
+ * Thrown for any non-2xx response. It stays an Error, so existing `catch (e)` code that
+ * reads `.message` keeps working — but the message is now the reason rather than the
+ * category.
+ *
+ * The server answers a failed validation with statusMessage "Invalid request" and puts
+ * the actual cause in data.fieldErrors. Surfacing only the former told every caller that
+ * something was wrong and never what, which is indistinguishable from a bug in the
+ * caller's own code. `fieldErrors` is kept structured for callers that want to mark up
+ * individual inputs.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly fieldErrors: Record<string, string[]>;
+
+  constructor(message: string, status: number, fieldErrors: Record<string, string[]> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.fieldErrors = fieldErrors;
+  }
+}
+
 export class MayIClient {
   constructor(private readonly origin: string, private readonly token?: string) {}
 
@@ -9,8 +32,18 @@ export class MayIClient {
     if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
     const response = await fetch(new URL(path, this.origin), { ...init, headers, credentials: "include" });
     if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { statusMessage?: string; message?: string };
-      throw new Error(body.statusMessage ?? body.message ?? `${response.status} ${response.statusText}`);
+      const body = (await response.json().catch(() => ({}))) as {
+        statusMessage?: string;
+        message?: string;
+        data?: { fieldErrors?: Record<string, string[]>; formErrors?: string[] };
+      };
+      const fieldErrors = body.data?.fieldErrors ?? {};
+      // Field messages first: "Include a special character." beats "Invalid request".
+      const reasons = [...Object.values(fieldErrors).flat(), ...(body.data?.formErrors ?? [])];
+      const message = reasons.length
+        ? reasons.join(" ")
+        : (body.statusMessage ?? body.message ?? `${response.status} ${response.statusText}`);
+      throw new ApiError(message, response.status, fieldErrors);
     }
     return response.json() as Promise<T>;
   }
