@@ -10,7 +10,9 @@ export async function bodyAs<T>(event: H3Event, schema: z.ZodType<T>): Promise<T
 
 export function requireIdempotencyKey(event: H3Event): string {
   const value = getHeader(event, "idempotency-key");
-  if (!value || value.length > 200) throw createError({ statusCode: 400, statusMessage: "A valid Idempotency-Key is required" });
+  if (!value || value.length > 200 || value.trim().length === 0) {
+    throw createError({ statusCode: 400, statusMessage: "A valid Idempotency-Key is required" });
+  }
   return value;
 }
 

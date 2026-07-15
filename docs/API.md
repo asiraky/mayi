@@ -12,4 +12,12 @@ callback URLs.
 
 HTTP agents use `POST /api/approvals` with `Idempotency-Key`, upload private evidence to `POST /api/approvals/:id/artefacts?filename=...`, then seal with `POST /api/approvals/:id/seal`. Users list, inspect, and decide through the same approval resources. A target verifies the JWS against `/.well-known/jwks.json`; consumed receipts are posted with exact action and manifest digests to `/api/receipts/consume`.
 
+No-artifact OAuth agents use `POST /api/approvals/request` with an
+`Idempotency-Key`, action, optional `suggestedApproverId`, expiry, and per-request callback. The callback
+must exactly match an approval callback URI registered to the OAuth client bound
+to the bearer token and must pass the public-HTTPS policy at request time. The
+endpoint atomically creates and seals the approval, freezes its empty-manifest
+digests and eligible approvers, stores callback state as opaque text, queues the
+normal pending notifications, and returns `PENDING` without waiting for a human.
+
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.

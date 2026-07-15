@@ -130,6 +130,20 @@ export const approvals = pgTable("approvals", {
   check("approval_digest_sealed_check", sql`${t.state} = 'DRAFT' OR (${t.actionDigest} IS NOT NULL AND ${t.manifestDigest} IS NOT NULL AND ${t.sealedAt} IS NOT NULL)`),
 ]);
 
+export const approvalCallbacks = pgTable("approval_callbacks", {
+  id: identifier("id").primaryKey(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  state: text("state").notNull(),
+  createdAt,
+}, (t) => [
+  uniqueIndex("approval_callbacks_approval_uidx").on(t.approvalId),
+  index("approval_callbacks_workspace_idx").on(t.workspaceId, t.createdAt),
+  check("approval_callbacks_url_length_check", sql`char_length(${t.url}) BETWEEN 1 AND 2048`),
+  check("approval_callbacks_state_length_check", sql`char_length(${t.state}) BETWEEN 1 AND 32768`),
+]);
+
 export const artefacts = pgTable("artefacts", {
   id: identifier("id").primaryKey(),
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
