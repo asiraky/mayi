@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   const approvalId = getRouterParam(event, "id")!;
   const input = await bodyAs(event, Decision);
   try {
-    await database().sql.begin("isolation level serializable", async (sql) => {
+    await database().sql.begin(async (sql) => {
       const [approval] = await sql`
         select a.*, now() as database_now from approvals a
         where a.id = ${approvalId} and a.workspace_id = ${auth.workspaceId} for update

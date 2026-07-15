@@ -200,19 +200,19 @@ describe.sequential("POST /api/approvals/request", () => {
 
   it("returns the original approval for identical reuse and rejects different content", async () => {
     const first = await post(baseInput, { token: TOKENS.createA, key: "stable-reuse" });
-    const original = await first.json() as { id: string };
+    const original = await first.json() as { id: string; state: string };
     const replay = await post(baseInput, { token: TOKENS.createA, key: "stable-reuse" });
-    const replayed = await replay.json() as { id: string };
+    const replayed = await replay.json() as { id: string; state: string };
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
-    expect(replayed.id).toBe(original.id);
+    expect(replayed).toEqual(original);
 
     const randomizedStateReplay = await post({
       ...baseInput,
       callback: { ...baseInput.callback, state: "different-randomized-ciphertext" },
     }, { token: TOKENS.createA, key: "stable-reuse" });
     expect(randomizedStateReplay.status).toBe(200);
-    expect((await randomizedStateReplay.json() as { id: string }).id).toBe(original.id);
+    expect(await randomizedStateReplay.json()).toEqual(original);
     const [storedCallback] = await database().sql`
       select state from approval_callbacks where approval_id = ${original.id}
     `;
@@ -229,12 +229,30 @@ describe.sequential("POST /api/approvals/request", () => {
     expect(Number(countRows[0]!.count)).toBe(1);
   });
 
+  it("replays the original pending response after the approval becomes terminal", async () => {
+    const first = await post(baseInput, { token: TOKENS.createA, key: "late-reuse" });
+    const original = await first.json() as { id: string; state: string; decidedAt: string | null };
+    expect(first.status).toBe(200);
+    expect(original).toMatchObject({ state: "PENDING", decidedAt: null });
+
+    await database().sql`
+      update approvals
+      set state = 'DENIED', decided_at = now(), approver_id = ${ids.user}, decision_comment = 'Denied later'
+      where id = ${original.id}
+    `;
+
+    const replay = await post(baseInput, { token: TOKENS.createA, key: "late-reuse" });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual(original);
+  });
+
   it("collapses concurrent identical requests to one approval", async () => {
     const responses = await Promise.all(Array.from({ length: 4 }, () =>
       post(baseInput, { token: TOKENS.createA, key: "concurrent-reuse" })));
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200]);
     const approvals = await Promise.all(responses.map((response) => response.json() as Promise<{ id: string }>));
     expect(new Set(approvals.map(({ id }) => id)).size).toBe(1);
+    expect(approvals).toEqual(Array.from({ length: 4 }, () => approvals[0]));
   });
 
   it("atomically claims ordered request-bound artefacts into the pending manifest", async () => {

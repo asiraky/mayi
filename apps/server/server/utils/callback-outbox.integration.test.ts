@@ -3,7 +3,7 @@ import { createApp, createRouter, toWebHandler } from "h3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import decision from "../api/approvals/[id]/decision.post";
 import cancel from "../api/approvals/[id]/cancel.post";
-import { auditJobSucceeded, deliverProviderRequest } from "../api/internal/jobs/drain.post";
+import { auditJobSucceeded, deliverProviderRequest, pendingNotificationIsCurrent } from "../api/internal/jobs/drain.post";
 import {
   CALLBACK_JOB_TYPE,
   CallbackDeliveryError,
@@ -102,11 +102,15 @@ async function allowCallbackJobInserts(): Promise<void> {
   await database().sql`drop function if exists test_fail_callback_job()`;
 }
 
-async function createGenericJob(type: "push.approval_pending" | "webhook.approval_pending" | "email.approval_pending") {
+async function createGenericJob(
+  type: "push.approval_pending" | "webhook.approval_pending" | "email.approval_pending",
+  approvalId = createId(),
+  extra: { destinationId?: string; deliveryId?: string } = {},
+) {
   const id = createId();
   await database().sql`
     insert into jobs (id, workspace_id, type, dedupe_key, payload)
-    values (${id}, ${ids.workspace}, ${type}, ${createId()}, ${JSON.stringify({ approvalId: createId() })}::jsonb)
+    values (${id}, ${ids.workspace}, ${type}, ${createId()}, ${JSON.stringify({ approvalId, ...extra })}::jsonb)
   `;
   return (await claimNextJob(database().sql, { jobId: id }))!;
 }
@@ -191,6 +195,21 @@ describe.sequential("terminal callback outbox transactions", () => {
     expect(JSON.stringify(jobs)).not.toContain(state);
     const receipts = await database().sql`select compact_jws from receipts where approval_id = ${approvalId}`;
     expect(receipts).toHaveLength(terminal === "APPROVED" ? 1 : 0);
+  });
+
+  it("serializes competing browser decisions without a 500 or duplicate callback", async () => {
+    const { approvalId, callbackId } = await createPending();
+    const responses = await Promise.all([
+      decide(approvalId, "APPROVED"),
+      decide(approvalId, "DENIED"),
+    ]);
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 409]);
+    const [approval] = await database().sql`select state from approvals where id = ${approvalId}`;
+    expect(["APPROVED", "DENIED"]).toContain(approval!.state);
+    const jobs = await database().sql`
+      select id from jobs where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}
+    `;
+    expect(jobs).toHaveLength(1);
   });
 
   it("reclaims a stale RUNNING lease after a simulated worker crash", async () => {
@@ -285,6 +304,57 @@ describe.sequential("terminal callback outbox transactions", () => {
     await expect(auditJobSucceeded(job, async () => { throw new Error("audit unavailable"); })).resolves.toBe(false);
     const [stored] = await database().sql`select state, attempts from jobs where id = ${job.id}`;
     expect(stored).toMatchObject({ state: "SUCCEEDED", attempts: 1 });
+  });
+
+  it.each([
+    ["CANCELLED", false],
+    ["expired PENDING", true],
+  ] as const)("skips queued pending notifications for %s approvals", async (terminal, expired) => {
+    const { approvalId } = await createPending(expired);
+    if (!expired) {
+      await database().sql`
+        update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now()
+        where id = ${approvalId}
+      `;
+    }
+    const job = await createGenericJob("push.approval_pending", approvalId);
+    await expect(pendingNotificationIsCurrent(job)).resolves.toBe(false);
+    await expect(markOutboxJobSucceeded(job, { skipped: true })).resolves.toBe(true);
+    const [stored] = await database().sql`select state, last_error from jobs where id = ${job.id}`;
+    expect(stored).toMatchObject({ state: "SUCCEEDED", last_error: null });
+  });
+
+  it("keeps a live pending notification deliverable", async () => {
+    const { approvalId } = await createPending();
+    const job = await createGenericJob("push.approval_pending", approvalId);
+    await expect(pendingNotificationIsCurrent(job)).resolves.toBe(true);
+  });
+
+  it("does not misreport a reclaimed external delivery as definitely skipped", async () => {
+    const { approvalId } = await createPending();
+    const destinationId = createId();
+    const deliveryId = createId();
+    await database().sql`
+      insert into forwarding_destinations (id, workspace_id, type, name, endpoint, verified_at)
+      values (${destinationId}, ${ids.workspace}, 'WEBHOOK', 'Recovered delivery', 'https://8.8.8.8/pending', now())
+    `;
+    await database().sql`
+      insert into forwarding_deliveries (id, workspace_id, approval_id, destination_id, origin_id)
+      values (${deliveryId}, ${ids.workspace}, ${approvalId}, ${destinationId}, ${approvalId})
+    `;
+    const first = await createGenericJob("webhook.approval_pending", approvalId, { destinationId, deliveryId });
+    await database().sql`update jobs set locked_at = now() - interval '6 minutes' where id = ${first.id}`;
+    const recovered = await claimNextJob(database().sql, { jobId: first.id });
+    expect(recovered).toMatchObject({ attempts: 2 });
+    await database().sql`
+      update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now()
+      where id = ${approvalId}
+    `;
+    await expect(markOutboxJobSucceeded(recovered!, { deliveryId, skipped: true })).resolves.toBe(true);
+    const [delivery] = await database().sql`
+      select state, response_code, delivered_at from forwarding_deliveries where id = ${deliveryId}
+    `;
+    expect(delivery).toMatchObject({ state: "DELIVERY_UNCONFIRMED", response_code: null, delivered_at: null });
   });
 
   it("bounds provider requests independently of the five-minute job lease", async () => {

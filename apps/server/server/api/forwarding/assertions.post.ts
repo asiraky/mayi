@@ -2,13 +2,14 @@ import { z } from "zod";
 import { actionAudience, Action, createId, Id } from "@mayi/contracts";
 import { importJWK, jwtVerify } from "jose";
 import { signReceipt } from "@mayi/receipts";
-import { createError, defineEventHandler, readBody } from "h3";
+import { createError, defineEventHandler } from "h3";
 import { database } from "../../utils/runtime";
 import { getConfig } from "../../utils/config";
 import { signingKeys } from "../../utils/signer";
 import { audit } from "../../utils/auth";
 import { serializeApproval } from "../../utils/serialize";
 import { activateApprovalCallback } from "../../utils/callback-outbox";
+import { readBoundedJsonBody } from "../../utils/http";
 
 const AssertionClaims = z.object({
   iss: Id, aud: z.union([z.string(), z.array(z.string())]), iat: z.number().int(), exp: z.number().int(),
@@ -18,7 +19,7 @@ const AssertionClaims = z.object({
 });
 
 export default defineEventHandler(async (event) => {
-  const body = z.object({ assertion: z.string().min(40) }).parse(await readBody(event));
+  const body = z.object({ assertion: z.string().min(40) }).parse(await readBoundedJsonBody(event, 128 * 1024));
   let hint: { destination_id?: string };
   try { hint = JSON.parse(Buffer.from(body.assertion.split(".")[1] ?? "", "base64url").toString()); } catch { throw createError({ statusCode: 400, statusMessage: "Malformed assertion" }); }
   if (!hint.destination_id) throw createError({ statusCode: 400, statusMessage: "Assertion lacks destination binding" });
@@ -28,7 +29,7 @@ export default defineEventHandler(async (event) => {
   const verified = await jwtVerify(body.assertion, key, { issuer: String(destination.id), audience: getConfig().publicOrigin, algorithms: ["EdDSA", "ES256"] });
   const claims = AssertionClaims.parse(verified.payload);
   if (claims.destination_id !== destination.id || claims.workspace_id !== destination.workspace_id) throw createError({ statusCode: 403, statusMessage: "Assertion trust relationship mismatch" });
-  await database().sql.begin("isolation level serializable", async (sql) => {
+  await database().sql.begin(async (sql) => {
     const rows = await sql`
       select a.*, now() as database_now from approvals a join forwarding_deliveries fd on fd.approval_id = a.id
       where a.id = ${claims.request_id} and a.workspace_id = ${claims.workspace_id} and fd.destination_id = ${claims.destination_id} and fd.state = 'DELIVERED' for update of a

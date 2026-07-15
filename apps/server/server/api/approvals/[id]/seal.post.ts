@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
   const approvalId = getRouterParam(event, "id")!;
   const input = await bodyAs(event, SealApproval);
   if (new Set(input.artefactIds).size !== input.artefactIds.length) throw createError({ statusCode: 422, statusMessage: "Artefacts may only appear once" });
-  await database().sql.begin("isolation level serializable", async (sql) => {
+  await database().sql.begin(async (sql) => {
     const [approval] = await sql`
       select a.*, w.policy_version from approvals a join workspaces w on w.id = a.workspace_id
       where a.id = ${approvalId} and a.workspace_id = ${auth.workspaceId} and a.agent_id = ${auth.agentId} for update
@@ -39,6 +39,12 @@ export default defineEventHandler(async (event) => {
     `;
     if (!eligible.length) throw createError({ statusCode: 409, statusMessage: "No eligible approver exists under current policy" });
     for (const item of manifest) await sql`insert into approval_artefacts (approval_id, artefact_id, ordinal) values (${approvalId}, ${item.id}, ${item.ordinal})`;
+    await sql`
+      update artefacts set state = 'DELETING'
+      where workspace_id = ${auth.workspaceId} and approval_id = ${approvalId}
+        and state = 'READY'
+        and not exists (select 1 from approval_artefacts aa where aa.artefact_id = artefacts.id)
+    `;
     for (const row of eligible) await sql`insert into eligible_approvers (approval_id, workspace_id, user_id) values (${approvalId}, ${auth.workspaceId}, ${row.user_id})`;
     await sql`
       update approvals set state = 'PENDING', action_digest = ${digests.actionDigest}, manifest_digest = ${digests.manifestDigest},

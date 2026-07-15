@@ -33,7 +33,7 @@ const approval = await mayi.approvals.request({
   },
 }, { idempotencyKey: requestId });
 
-console.log(approval.id, approval.status); // PENDING
+console.log(approval.id, approval.state); // PENDING
 ```
 
 To attach evidence, stage each PDF or image with the request idempotency key and

@@ -44,12 +44,12 @@ export default defineEventHandler(async (event) => {
     if (replay[0].payload_hash !== payloadHash) {
       throw createError({ statusCode: 409, statusMessage: "Idempotency key was reused with different content" });
     }
-    return await serializeApproval(auth.workspaceId, String((replay[0].response as { id: string }).id));
+    return replay[0].response;
   }
 
   await authorizeApprovalCallback(auth, input.callback.url);
 
-  const approvalId = await database().sql.begin(async (sql) => {
+  return await database().sql.begin(async (sql) => {
     // Serialize only callers competing for this credential/key. Without this lock, two
     // first uses could both pass the missing-row check before either inserts the key.
     const lockKey = `${auth.workspaceId}:${auth.agentId}:${OPERATION}:${key}`;
@@ -68,7 +68,7 @@ export default defineEventHandler(async (event) => {
       if (previous[0].payload_hash !== payloadHash) {
         throw createError({ statusCode: 409, statusMessage: "Idempotency key was reused with different content" });
       }
-      return String((previous[0].response as { id: string }).id);
+      return previous[0].response;
     }
 
     const [workspace] = await sql`
@@ -174,12 +174,16 @@ export default defineEventHandler(async (event) => {
       `;
     }
     await queuePendingNotifications(sql, { workspaceId: auth.workspaceId, approvalId: id, action: input.action });
+    const response = await serializeApproval(auth.workspaceId, id, sql);
+    if (!response) {
+      throw createError({ statusCode: 500, statusMessage: "Created approval could not be serialized" });
+    }
     await sql`
       insert into idempotency_keys (
         workspace_id, credential_id, operation, key, payload_hash, response, expires_at
       ) values (
         ${auth.workspaceId}, ${auth.agentId}, ${OPERATION}, ${key}, ${payloadHash},
-        ${JSON.stringify({ id })}::jsonb, now() + interval '24 hours'
+        ${JSON.stringify(response)}::jsonb, now() + interval '24 hours'
       )
     `;
     await audit({
@@ -191,8 +195,6 @@ export default defineEventHandler(async (event) => {
       subjectId: id,
       metadata: digests,
     }, sql);
-    return id;
+    return response;
   });
-
-  return await serializeApproval(auth.workspaceId, approvalId);
 });

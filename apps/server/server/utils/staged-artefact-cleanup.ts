@@ -9,7 +9,7 @@ export type StagedArtefactCleanupDependencies = {
   afterObjectDeleted?: (row: { id: string; objectKey: string }) => void | Promise<void>;
 };
 
-/** Deletes up to `limit` expired, unclaimed request artefacts. Bound evidence is never selected. */
+/** Deletes expired request staging and abandoned legacy upload reservations. Ready bound evidence is never selected. */
 export async function cleanupExpiredStagedArtefacts(
   limit = 25,
   dependencies: StagedArtefactCleanupDependencies = {},
@@ -22,8 +22,13 @@ export async function cleanupExpiredStagedArtefacts(
       const [row] = await tx`
         select id, object_key
         from artefacts
-        where approval_id is null and request_key is not null
+        where (
+          approval_id is null and request_key is not null
           and (state = 'DELETING' or (state in ('UPLOADING', 'READY') and expires_at <= now()))
+        ) or (
+          approval_id is not null and request_key is null
+          and (state = 'DELETING' or (state = 'UPLOADING' and expires_at <= now()))
+        )
         order by (state = 'DELETING') desc, expires_at
         for update skip locked
         limit 1
@@ -31,7 +36,10 @@ export async function cleanupExpiredStagedArtefacts(
       if (!row) return undefined;
       const updated = await tx`
         update artefacts set state = 'DELETING'
-        where id = ${row.id} and approval_id is null and request_key is not null
+        where id = ${row.id} and (
+          (approval_id is null and request_key is not null)
+          or (approval_id is not null and request_key is null and state in ('UPLOADING', 'DELETING'))
+        )
         returning id, object_key
       `;
       if (!updated[0]) return undefined;
@@ -44,7 +52,7 @@ export async function cleanupExpiredStagedArtefacts(
     await dependencies.afterObjectDeleted?.(marked);
     await sql`
       delete from artefacts
-      where id = ${marked.id} and approval_id is null and request_key is not null and state = 'DELETING'
+      where id = ${marked.id} and state = 'DELETING'
     `;
   }
   return cleaned;

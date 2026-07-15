@@ -1,5 +1,5 @@
 import { actionName, isToolCallAction, type Approval } from "@mayi/contracts";
-import type { MayiClient } from "@mayi/sdk";
+import { MayiHttpError, type MayiClient } from "@mayi/sdk";
 import { ArrowLeft, FileText } from "lucide-react";
 import { useState } from "react";
 import { StateBadge } from "~/components/state-badge";
@@ -52,7 +52,7 @@ export function ApprovalDetail({
     } catch (cause) {
       // A high-risk action can demand a fresh authentication. Re-prompting inline and
       // retrying keeps the decision the user already made, rather than dropping it.
-      if (cause instanceof Error && cause.message.includes("Recent authentication")) {
+      if (cause instanceof MayiHttpError && cause.code === "step_up_required") {
         const password = window.prompt("Re-enter your password to decide this high-risk action");
         if (!password) return setBusy(false);
         try {

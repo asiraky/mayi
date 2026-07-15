@@ -12,7 +12,9 @@ import { Auth } from "~/screens/auth";
 
 const api = new MayiClient({
   origin: location.origin,
-  dangerouslyAllowInsecureHttpForDevelopment: import.meta.env.DEV,
+  // The SDK still rejects every non-loopback HTTP host. Key this opt-in to the
+  // real origin so the documented production-like local server works too.
+  dangerouslyAllowInsecureHttpForDevelopment: location.protocol === "http:",
 });
 
 const TABS = ["inbox", "history", "agents", "activity"] as const;

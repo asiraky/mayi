@@ -152,7 +152,16 @@ function isInternalHostname(hostname: string): boolean {
 
 const systemResolver: PublicUrlResolver = async (hostname) => {
   const dns = await import("node:dns/promises");
-  return dns.lookup(hostname, { all: true, verbatim: true });
+  // Cloudflare Workers implements resolve4/resolve6 but intentionally does not
+  // implement lookup(). Query both families so the public-only policy is the
+  // same in Node and the supported edge deployment.
+  const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)]);
+  const addresses = [
+    ...(ipv4.status === "fulfilled" ? ipv4.value.map((address) => ({ address, family: 4 })) : []),
+    ...(ipv6.status === "fulfilled" ? ipv6.value.map((address) => ({ address, family: 6 })) : []),
+  ];
+  if (!addresses.length && ipv4.status === "rejected" && ipv6.status === "rejected") throw ipv4.reason;
+  return addresses;
 };
 
 /**

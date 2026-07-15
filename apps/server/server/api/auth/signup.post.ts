@@ -5,9 +5,12 @@ import { database } from "../../utils/runtime";
 import { createSession, audit } from "../../utils/auth";
 import { getConfig } from "../../utils/config";
 import { passwordHash, timingSafeEqual } from "../../utils/crypto";
+import { authenticationClientAddress, recordAuthenticationAttempt } from "../../utils/auth-rate-limit";
 
 export default defineEventHandler(async (event) => {
   const input = await bodyAs(event, Signup);
+  const source = authenticationClientAddress(event);
+  await recordAuthenticationAttempt(`signup:${source}`, 10);
   const config = getConfig();
   const result = await database().sql.begin(async (sql) => {
     await sql`select pg_advisory_xact_lock(71924701)`;

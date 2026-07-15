@@ -13,6 +13,8 @@ import {
   activateApprovalCallback,
   callbackRetryDelaySeconds,
   claimNextJob,
+  deliverCallbackHttp,
+  deliverCallbackHttpEdge,
   deliverCallbackHttpNode,
   markCallbackDelivered,
   markCallbackFailed,
@@ -22,7 +24,7 @@ import {
 } from "./callback-outbox";
 import type { ValidatedPublicUrl } from "./public-url";
 import { signWebhook } from "./forwarding";
-import { database } from "./runtime";
+import { configureEdgeRuntime, database } from "./runtime";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://mayi:mayi@localhost:55432/mayi";
 process.env.DATABASE_URL = DATABASE_URL;
@@ -132,6 +134,22 @@ afterAll(async () => {
 });
 
 describe.sequential("terminal callback delivery", () => {
+  it("fails closed on edge runtimes unless public-only egress is configured", async () => {
+    configureEdgeRuntime({ strictlyPublicFetch: false });
+    await expect(deliverCallbackHttpEdge(target(), "{}", "signature")).rejects.toMatchObject({
+      code: "edge_public_egress_unavailable",
+      retryable: false,
+    });
+  });
+
+  it("uses fetch only after edge public-only egress is configured", async () => {
+    configureEdgeRuntime({ strictlyPublicFetch: true });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("ok", { status: 200 }));
+    await expect(deliverCallbackHttp(target(), "{}", "signature")).resolves.toEqual({ status: 200, bytes: 2 });
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    configureEdgeRuntime({ strictlyPublicFetch: false });
+  });
+
   it("uses the documented 50%-150% exponential jitter bounds", () => {
     expect(callbackRetryDelaySeconds(1, () => 0)).toBe(2.5);
     expect(callbackRetryDelaySeconds(1, () => 1)).toBe(7.5);

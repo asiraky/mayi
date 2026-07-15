@@ -166,6 +166,7 @@ export function normalizeRegistrationClientAddress(value: string | undefined): s
 export function registrationClientAddress(
   event: H3Event,
   env: Record<string, string | undefined> = process.env,
+  development = import.meta.dev,
 ): string {
   const configuredHeader = (
     env.OAUTH_REGISTRATION_TRUSTED_IP_HEADER
@@ -177,9 +178,24 @@ export function registrationClientAddress(
     }
     // The configured proxy must overwrite this header with one address. Lists are
     // deliberately rejected rather than guessing which hop is trustworthy.
-    return normalizeRegistrationClientAddress(getHeader(event, configuredHeader));
+    const trustedAddress = getHeader(event, configuredHeader);
+    if (trustedAddress) return normalizeRegistrationClientAddress(trustedAddress);
+    // The Docker full profile also exposes the app on loopback for direct local
+    // use. If that request did not traverse the proxy, bind its limit to the
+    // socket peer instead of rejecting an otherwise valid registration.
+    const directAddress = getRequestIP(event);
+    if (directAddress) return normalizeRegistrationClientAddress(directAddress);
+    return normalizeRegistrationClientAddress(undefined);
   }
-  return normalizeRegistrationClientAddress(getRequestIP(event));
+  const directAddress = getRequestIP(event);
+  if (directAddress) return normalizeRegistrationClientAddress(directAddress);
+  // Nitro's development proxy does not expose its internal socket address to H3,
+  // but it does append the loopback client to X-Forwarded-For. This fallback is
+  // development-only so a production caller can never choose its rate-limit key.
+  if (development) {
+    return normalizeRegistrationClientAddress(getHeader(event, "x-forwarded-for"));
+  }
+  return normalizeRegistrationClientAddress(undefined);
 }
 
 export function assertRegistrationAttemptAllowed(attempts: number): void {

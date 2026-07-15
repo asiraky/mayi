@@ -56,6 +56,17 @@ export async function auditJobSucceeded(
   }
 }
 
+export async function pendingNotificationIsCurrent(job: Job): Promise<boolean> {
+  const approvalId = job.payload.approvalId;
+  if (!approvalId) return false;
+  const rows = await database().sql`
+    select 1 from approvals
+    where id = ${approvalId} and workspace_id = ${job.workspace_id}
+      and state = 'PENDING' and expires_at > now()
+  `;
+  return Boolean(rows[0]);
+}
+
 async function push(job: Job): Promise<void> {
   const approvalId = job.payload.approvalId;
   if (!approvalId) throw new Error("Missing approval ID");
@@ -155,6 +166,14 @@ export default defineEventHandler(async (event) => {
         await sendApprovalCallback(job);
         completed = await markCallbackDelivered(job);
       } else {
+        if (!await pendingNotificationIsCurrent(job)) {
+          completed = await markOutboxJobSucceeded(job, {
+            ...(job.payload.deliveryId ? { deliveryId: job.payload.deliveryId } : {}),
+            skipped: true,
+          });
+          if (completed) await auditJobSucceeded(job);
+          continue;
+        }
         let result: NonCallbackJobResult = {};
         if (job.type === "push.approval_pending") await push(job);
         else if (job.type === "webhook.approval_pending") result = await webhook(job);

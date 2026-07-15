@@ -130,11 +130,13 @@ export class MayiNetworkError extends Error {
 
 export class MayiHttpError extends Error {
   readonly status: number;
+  readonly code: "step_up_required" | undefined;
 
-  constructor(status: number) {
+  constructor(status: number, code?: "step_up_required") {
     super("The Mayi service rejected the request");
     this.name = "MayiHttpError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -245,10 +247,14 @@ export class MayiClient {
   private async request(path: string, init: RequestInit = {}, auth: AuthMode = "cookie"): Promise<unknown> {
     const headers = new Headers(init.headers);
     headers.delete("authorization");
+    let credentials: RequestCredentials = "include";
 
     if (auth !== "cookie") {
       const token = await this.accessToken(auth === "required-access-token");
-      if (token) headers.set("authorization", `Bearer ${token}`);
+      if (token) {
+        headers.set("authorization", `Bearer ${token}`);
+        credentials = "omit";
+      }
     }
     if (typeof init.body === "string" && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
@@ -256,12 +262,23 @@ export class MayiClient {
 
     let response: Response;
     try {
-      response = await this.fetch(new URL(path, this.origin), { ...init, headers, credentials: "include" });
+      response = await this.fetch(new URL(path, this.origin), { ...init, headers, credentials });
     } catch {
       throw new MayiNetworkError();
     }
 
-    if (!response.ok) throw new MayiHttpError(response.status);
+    if (!response.ok) {
+      let code: "step_up_required" | undefined;
+      if (response.status === 403) {
+        try {
+          const error = await response.json() as { data?: { code?: unknown } };
+          if (error.data?.code === "step_up_required") code = "step_up_required";
+        } catch {
+          // Error bodies are optional and are never exposed to callers.
+        }
+      }
+      throw new MayiHttpError(response.status, code);
+    }
     try {
       return await response.json() as unknown;
     } catch {

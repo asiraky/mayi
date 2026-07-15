@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { H3Event } from "h3";
-import { readBoundedBody, readBoundedStream } from "./http";
+import { readBoundedBody, readBoundedJsonBody, readBoundedJsonOrFormBody, readBoundedStream } from "./http";
 
 function chunkedBody(chunks: number[][], cancel = vi.fn()) {
   let index = 0;
@@ -59,5 +59,44 @@ describe("readBoundedStream", () => {
     await expect(readBoundedBody(eventWithBody(stream, "1"), 4))
       .rejects.toMatchObject({ statusCode: 413 });
     expect(cancel).toHaveBeenCalledOnce();
+  });
+});
+
+describe("readBoundedJsonBody", () => {
+  it("parses JSON at the configured byte boundary", async () => {
+    const bytes = [...new TextEncoder().encode('{"ok":true}')];
+    const { stream } = chunkedBody([bytes.slice(0, 4), bytes.slice(4)]);
+    await expect(readBoundedJsonBody(eventWithBody(stream), bytes.length)).resolves.toEqual({ ok: true });
+  });
+
+  it("rejects malformed and oversized chunked JSON", async () => {
+    const malformed = chunkedBody([[123]]);
+    await expect(readBoundedJsonBody(eventWithBody(malformed.stream), 10))
+      .rejects.toMatchObject({ statusCode: 400 });
+
+    const oversized = chunkedBody([[123, 34], [120, 34, 58, 49, 125]]);
+    await expect(readBoundedJsonBody(eventWithBody(oversized.stream), 4))
+      .rejects.toMatchObject({ statusCode: 413 });
+    expect(oversized.cancel).toHaveBeenCalledOnce();
+  });
+});
+
+describe("readBoundedJsonOrFormBody", () => {
+  it("parses bounded OAuth form data", async () => {
+    const encoded = [...new TextEncoder().encode("decision=approve&scope=approval%3Aread")];
+    const { stream } = chunkedBody([encoded]);
+    const event = eventWithBody(stream) as H3Event & { node: { req: { headers: Record<string, string> } } };
+    event.node.req.headers["content-type"] = "application/x-www-form-urlencoded";
+    await expect(readBoundedJsonOrFormBody(event, encoded.length)).resolves.toEqual({
+      decision: "approve",
+      scope: "approval:read",
+    });
+  });
+
+  it("rejects chunked OAuth form data immediately over its limit", async () => {
+    const oversized = chunkedBody([[1, 2], [3, 4, 5]]);
+    await expect(readBoundedJsonOrFormBody(eventWithBody(oversized.stream), 4))
+      .rejects.toMatchObject({ statusCode: 413 });
+    expect(oversized.cancel).toHaveBeenCalledOnce();
   });
 });

@@ -78,6 +78,7 @@ describe("MayiClient approvals.request", () => {
     expect(init?.method).toBe("POST");
     const { headers, body } = captured(init);
     expect(headers.get("authorization")).toBe("Bearer oauth-token");
+    expect(init?.credentials).toBe("omit");
     expect(headers.get("content-type")).toBe("application/json");
     expect(headers.get("idempotency-key")).toBe("stable-key");
     expect(JSON.parse(body!)).toEqual(requestInput);
@@ -255,6 +256,26 @@ describe("MayiClient safe failures", () => {
     expect(error).toBeInstanceOf(MayiHttpError);
     expect(error).toMatchObject({ status: 403 });
     expectSecretSafe(error, secret, "token", requestInput.callback.state);
+  });
+
+  it("exposes only the allowlisted step-up error code needed by browser clients", async () => {
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      fetch: async () => jsonResponse({ data: { code: "step_up_required", detail: "not-exposed-secret" } }, { status: 403 }),
+    });
+    const error = await client.decide("ApprovalAbcd", { decision: "APPROVED" }).catch((cause) => cause);
+    expect(error).toMatchObject({ status: 403, code: "step_up_required" });
+    expectSecretSafe(error, "not-exposed-secret");
+  });
+
+  it("does not expose unrecognized service error codes", async () => {
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      fetch: async () => jsonResponse({ data: { code: "private-diagnostic-secret" } }, { status: 403 }),
+    });
+    const error = await client.decide("ApprovalAbcd", { decision: "APPROVED" }).catch((cause) => cause);
+    expect(error).toMatchObject({ status: 403, code: undefined });
+    expectSecretSafe(error, "private-diagnostic-secret");
   });
 });
 

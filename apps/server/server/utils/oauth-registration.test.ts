@@ -132,6 +132,33 @@ describe("OAuth dynamic client registration validation", () => {
     expect(registrationClientAddress(event, {})).toBe("198.51.100.7");
   });
 
+  it("uses Nitro's single-address forwarded identity only when the development proxy hides the socket", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: { "x-forwarded-for": "::ffff:127.0.0.1" },
+          socket: {},
+        },
+      },
+    } as unknown as H3Event;
+    expect(registrationClientAddress(event, {}, true)).toBe("::ffff:127.0.0.1");
+    expect(() => registrationClientAddress(event, {}, false)).toThrow(/source IP/);
+  });
+
+  it("rejects a forwarded chain even through the development proxy fallback", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: { "x-forwarded-for": "203.0.113.99, 127.0.0.1" },
+          socket: {},
+        },
+      },
+    } as unknown as H3Event;
+    expect(() => registrationClientAddress(event, {}, true)).toThrow(/source IP/);
+  });
+
   it("uses only a configured single-address trusted header", () => {
     const event = {
       context: {},
@@ -148,6 +175,21 @@ describe("OAuth dynamic client registration validation", () => {
     expect(registrationClientAddress(event, {
       OAUTH_REGISTRATION_TRUSTED_IP_HEADER: "x-mayi-client-ip",
     })).toBe("203.0.113.8");
+  });
+
+  it("falls back to the socket peer for direct access when the configured proxy header is absent", () => {
+    const event = {
+      context: {},
+      node: {
+        req: {
+          headers: {},
+          socket: { remoteAddress: "127.0.0.1" },
+        },
+      },
+    } as unknown as H3Event;
+    expect(registrationClientAddress(event, {
+      OAUTH_REGISTRATION_TRUSTED_IP_HEADER: "x-forwarded-for",
+    })).toBe("127.0.0.1");
   });
 
   it("selects Vercel's overwritten client header only in the Vercel runtime", () => {

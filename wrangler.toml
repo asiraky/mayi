@@ -1,7 +1,7 @@
 name = "may-i"
 main = "deploy/cloudflare-worker.ts"
 compatibility_date = "2026-07-14"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 [vars]
 PUBLIC_ORIGIN = "https://app.mayi.sh"
@@ -10,6 +10,7 @@ RECEIPT_ISSUER = "https://app.mayi.sh"
 RECEIPT_AUDIENCE = "mayi-executor"
 RETENTION_DAYS = "90"
 OAUTH_REGISTRATION_TRUSTED_IP_HEADER = "cf-connecting-ip"
+AUTH_TRUSTED_IP_HEADER = "cf-connecting-ip"
 
 [[routes]]
 pattern = "app.mayi.sh"

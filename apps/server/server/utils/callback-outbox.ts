@@ -11,7 +11,7 @@ import type { ClientRequest, IncomingMessage } from "node:http";
 import type { RequestOptions } from "node:https";
 import { PublicUrlValidationError, validatePublicHttpsUrl, type PublicUrlResolver, type ValidatedPublicUrl } from "./public-url";
 import { signWebhook } from "./forwarding";
-import { database } from "./runtime";
+import { database, strictlyPublicEdgeFetchConfigured } from "./runtime";
 
 export const CALLBACK_JOB_TYPE = "callback.approval_resolved";
 export const OUTBOX_MAX_ATTEMPTS = 10;
@@ -69,6 +69,7 @@ type CallbackMutationDependencies = {
 export type NonCallbackJobResult = {
   deliveryId?: string;
   responseCode?: number;
+  skipped?: boolean;
 };
 
 export class CallbackDeliveryError extends Error {
@@ -232,7 +233,14 @@ async function readFetchResponse(response: Response): Promise<number> {
   }
 }
 
-async function edgeTransport(target: ValidatedPublicUrl, body: string, signature: string): Promise<CallbackHttpResponse> {
+export async function deliverCallbackHttpEdge(
+  target: ValidatedPublicUrl,
+  body: string,
+  signature: string,
+): Promise<CallbackHttpResponse> {
+  if (!strictlyPublicEdgeFetchConfigured()) {
+    throw new CallbackDeliveryError("edge_public_egress_unavailable", false);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CALLBACK_TOTAL_TIMEOUT_MS);
   try {
@@ -349,7 +357,11 @@ export async function deliverCallbackHttpNode(
 }
 
 export const deliverCallbackHttp: CallbackTransport = async (target, body, signature) =>
-  nodeRuntime() ? deliverCallbackHttpNode(target, body, signature) : edgeTransport(target, body, signature);
+  strictlyPublicEdgeFetchConfigured()
+    ? deliverCallbackHttpEdge(target, body, signature)
+    : nodeRuntime()
+      ? deliverCallbackHttpNode(target, body, signature)
+      : deliverCallbackHttpEdge(target, body, signature);
 
 function classifyStatus(status: number): void {
   if (status >= 200 && status < 300) return;
@@ -419,9 +431,10 @@ export async function markOutboxJobSucceeded(
   return sql.begin(async (tx) => {
     if (!await lockCurrentJobLease(tx, job)) return false;
     if (result.deliveryId) {
+      const skippedState = job.attempts > 1 ? "DELIVERY_UNCONFIRMED" : "SKIPPED";
       const deliveries = await tx`
-        update forwarding_deliveries set state = 'DELIVERED', response_code = ${result.responseCode ?? null},
-          delivered_at = now()
+        update forwarding_deliveries set state = ${result.skipped ? skippedState : "DELIVERED"},
+          response_code = ${result.responseCode ?? null}, delivered_at = ${result.skipped ? null : new Date()}
         where id = ${result.deliveryId} and workspace_id = ${job.workspace_id}
         returning id
       `;

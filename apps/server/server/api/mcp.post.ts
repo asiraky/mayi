@@ -1,13 +1,15 @@
-import { actionName, CreateApproval, Id, canonicalDigest, createId } from "@mayi/contracts";
+import { actionName, Action, CreateApproval, Id, canonicalDigest, createId } from "@mayi/contracts";
 import { freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "@mayi/domain";
-import { defineEventHandler, readBody } from "h3";
+import { createError, defineEventHandler } from "h3";
 import { z } from "zod";
 import { audit, requireAgent } from "../utils/auth";
 import { database } from "../utils/runtime";
 import { serializeApproval } from "../utils/serialize";
 import { activateApprovalCallback } from "../utils/callback-outbox";
+import { readBoundedJsonBody } from "../utils/http";
 
 const Call = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]).optional(), method: z.string(), params: z.record(z.string(), z.unknown()).optional() });
+const MCP_CREATE_OPERATION = "approval.create.mcp";
 
 const tools = [
   { name: "create_approval", description: "Create and seal an exact approval request without evidence. Use HTTP uploads for evidence.", inputSchema: { type: "object", required: ["action", "explanation", "idempotencyKey"], properties: { action: { type: "object" }, explanation: { type: "string" }, expiresInSeconds: { type: "integer" }, enforcement: { enum: ["cooperative", "verified", "consumed"] }, suggestedApproverId: { type: "string", pattern: "^[A-Za-z]{12}$" }, idempotencyKey: { type: "string" } } } },
@@ -20,7 +22,7 @@ function toolResult(value: unknown) { return { content: [{ type: "text", text: J
 
 export default defineEventHandler(async (event) => {
   const auth = await requireAgent(event);
-  const request = Call.parse(await readBody(event));
+  const request = Call.parse(await readBoundedJsonBody(event));
   if (request.method === "initialize") return result(request.id, { protocolVersion: "2025-11-25", capabilities: { tools: { listChanged: false } }, serverInfo: { name: "may-i", version: "0.1.0" } });
   if (request.method === "notifications/initialized") return { jsonrpc: "2.0" };
   if (request.method === "ping") return result(request.id, {});
@@ -35,10 +37,14 @@ export default defineEventHandler(async (event) => {
     try { validateActionForEnforcement(input.action, input.enforcement); }
     catch (error) { return result(request.id, { isError: true, content: [{ type: "text", text: error instanceof Error ? error.message : "Invalid exact action" }] }); }
     const payloadHash = await canonicalDigest(input);
-    const id = await database().sql.begin("isolation level serializable", async (sql) => {
-      const existing = await sql`select payload_hash, response from idempotency_keys where workspace_id = ${auth.workspaceId} and credential_id = ${auth.agentId} and operation = 'approval.create' and key = ${idempotencyKey} for update`;
+    const id = await database().sql.begin(async (sql) => {
+      const lockKey = `${auth.workspaceId}:${auth.agentId}:${MCP_CREATE_OPERATION}:${idempotencyKey}`;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+      const existing = await sql`select payload_hash, response from idempotency_keys where workspace_id = ${auth.workspaceId} and credential_id = ${auth.agentId} and operation = ${MCP_CREATE_OPERATION} and key = ${idempotencyKey} for update`;
       if (existing[0]) {
-        if (existing[0].payload_hash !== payloadHash) throw new Error("Idempotency key reused with different content");
+        if (existing[0].payload_hash !== payloadHash) {
+          throw createError({ statusCode: 409, statusMessage: "Idempotency key reused with different content" });
+        }
         return String((existing[0].response as { id: string }).id);
       }
       const [workspace] = await sql`select policy_version from workspaces where id = ${auth.workspaceId} for share`;
@@ -53,7 +59,7 @@ export default defineEventHandler(async (event) => {
       `;
       const storedApprovalId = String(approval!.id);
       for (const row of eligible) await sql`insert into eligible_approvers (approval_id, workspace_id, user_id) values (${storedApprovalId}, ${auth.workspaceId}, ${row.user_id})`;
-      await sql`insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at) values (${auth.workspaceId}, ${auth.agentId}, 'approval.create', ${idempotencyKey}, ${payloadHash}, ${JSON.stringify({ id: storedApprovalId })}::jsonb, now() + interval '24 hours')`;
+      await sql`insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at) values (${auth.workspaceId}, ${auth.agentId}, ${MCP_CREATE_OPERATION}, ${idempotencyKey}, ${payloadHash}, ${JSON.stringify({ id: storedApprovalId })}::jsonb, now() + interval '24 hours')`;
       await sql`insert into jobs (id, workspace_id, type, dedupe_key, payload) values (${createId()}, ${auth.workspaceId}, 'push.approval_pending', ${storedApprovalId}, ${JSON.stringify({ approvalId: storedApprovalId })}::jsonb) on conflict do nothing`;
       const rules = await sql`select r.destination_id, d.type from forwarding_rules r join forwarding_destinations d on d.id = r.destination_id where r.workspace_id = ${auth.workspaceId} and r.active and d.active and d.verified_at is not null and (r.action_kind = '*' or r.action_kind = ${actionName(input.action)})`;
       for (const rule of rules) {
@@ -74,13 +80,28 @@ export default defineEventHandler(async (event) => {
   if (name === "cancel_approval") {
     if (!auth.scopes.includes("approval:cancel")) return result(request.id, { isError: true, content: [{ type: "text", text: "Missing approval:cancel scope" }] });
     const id = Id.parse(args.id);
-    await database().sql.begin("isolation level serializable", async (sql) => {
+    await database().sql.begin(async (sql) => {
       const rows = await sql`
-        select id from approvals where id = ${id} and workspace_id = ${auth.workspaceId}
+        select id, state, action from approvals where id = ${id} and workspace_id = ${auth.workspaceId}
           and agent_id = ${auth.agentId} and state in ('DRAFT','PENDING') for update
       `;
       if (!rows[0]) return;
-      await sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id}`;
+      if (rows[0].state === "DRAFT") {
+        const digests = await freezeDigests(Action.parse(rows[0].action), []);
+        await sql`
+          update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now(),
+            action_digest = ${digests.actionDigest}, manifest_digest = ${digests.manifestDigest}, sealed_at = now()
+          where id = ${id}
+        `;
+      } else {
+        await sql`update approvals set state = 'CANCELLED', cancelled_at = now(), decided_at = now() where id = ${id}`;
+      }
+      await sql`
+        update artefacts set state = 'DELETING'
+        where workspace_id = ${auth.workspaceId} and approval_id = ${id}
+          and state = 'READY'
+          and not exists (select 1 from approval_artefacts aa where aa.artefact_id = artefacts.id)
+      `;
       await activateApprovalCallback(sql, id);
       await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.cancelled", subjectType: "approval", subjectId: id }, sql);
     });

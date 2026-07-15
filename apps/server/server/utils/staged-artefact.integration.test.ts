@@ -4,6 +4,9 @@ import { createApp, createRouter, toWebHandler } from "h3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import downloadArtefact from "../api/approvals/[id]/artefacts/[artefactId].get";
 import uploadDraftArtefact from "../api/approvals/[id]/artefacts.post";
+import cancelApproval from "../api/approvals/[id]/cancel.post";
+import sealApproval from "../api/approvals/[id]/seal.post";
+import mcp from "../api/mcp.post";
 import stageArtefact from "../api/approvals/request/artefacts/[ordinal].post";
 import { MAX_ARTEFACT_BYTES } from "./artefacts";
 import { tokenHash } from "./crypto";
@@ -15,12 +18,14 @@ process.env.DATABASE_URL = DATABASE_URL;
 
 class MemoryObjectStore implements ObjectStore {
   readonly values = new Map<string, { bytes: Uint8Array; mediaType: string }>();
+  beforePut: ((key: string) => void | Promise<void>) | undefined;
 
   async putImmutable(key: string, bytes: Uint8Array, mediaType: string): Promise<void> {
     if (await this.putIfAbsent(key, bytes, mediaType) === "exists") throw new Error("Object already exists");
   }
 
   async putIfAbsent(key: string, bytes: Uint8Array, mediaType: string): Promise<"created" | "exists"> {
+    await this.beforePut?.(key);
     if (this.values.has(key)) return "exists";
     this.values.set(key, { bytes: bytes.slice(), mediaType });
     return "created";
@@ -43,7 +48,10 @@ configureEdgeRuntime({ objectStore });
 const router = createRouter();
 router.post("/api/approvals/request/artefacts/:ordinal", stageArtefact);
 router.post("/api/approvals/:id/artefacts", uploadDraftArtefact);
+router.post("/api/approvals/:id/cancel", cancelApproval);
+router.post("/api/approvals/:id/seal", sealApproval);
 router.get("/api/approvals/:id/artefacts/:artefactId", downloadArtefact);
+router.post("/api/mcp", mcp);
 const app = createApp();
 app.use(router);
 const handle = toWebHandler(app);
@@ -117,8 +125,11 @@ describe.sequential("POST /api/approvals/request/artefacts/:ordinal", () => {
     `;
     await database().sql`insert into workspaces (id, name) values (${ids.workspace}, 'Staged artefact integration')`;
     await database().sql`
+      insert into memberships (workspace_id, user_id, role) values (${ids.workspace}, ${ids.user}, 'OWNER')
+    `;
+    await database().sql`
       insert into agents (id, workspace_id, name, scopes, credential_hash, created_by)
-      values (${ids.agent}, ${ids.workspace}, 'Staging agent', ${["approval:create", "approval:read"]}, ${await tokenHash(token)}, ${ids.user})
+      values (${ids.agent}, ${ids.workspace}, 'Staging agent', ${["approval:create", "approval:read", "approval:cancel"]}, ${await tokenHash(token)}, ${ids.user})
     `;
   });
 
@@ -260,6 +271,126 @@ describe.sequential("POST /api/approvals/request/artefacts/:ordinal", () => {
     expect(download.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("removes a legacy upload that loses a race with draft cancellation", async () => {
+    const approvalId = createId();
+    await database().sql`
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, expires_at)
+      values (${approvalId}, ${ids.workspace}, ${ids.agent},
+        ${JSON.stringify({ kind: "tool-call", toolName: "draft", callId: createId(), input: {} })}::jsonb,
+        'Concurrent legacy upload', 'cooperative', now() + interval '1 hour')
+    `;
+    let releasePut!: () => void;
+    let signalPut!: () => void;
+    const putStarted = new Promise<void>((resolve) => { signalPut = resolve; });
+    const release = new Promise<void>((resolve) => { releasePut = resolve; });
+    objectStore.beforePut = async (key) => {
+      if (key.includes(`/${approvalId}/`)) {
+        signalPut();
+        await release;
+      }
+    };
+    try {
+      const upload = postDraft(approvalId, new TextEncoder().encode("%PDF-race"), "application/pdf");
+      await putStarted;
+      const cancellation = await handle(new Request(`http://mayi.test/api/approvals/${approvalId}/cancel`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      }));
+      expect(cancellation.status).toBe(200);
+      releasePut();
+      expect((await upload).status).toBe(409);
+    } finally {
+      objectStore.beforePut = undefined;
+      releasePut();
+    }
+    expect(await database().sql`select id from artefacts where approval_id = ${approvalId}`).toHaveLength(0);
+    expect([...objectStore.values.keys()].some((key) => key.includes(`/${approvalId}/`))).toBe(false);
+  });
+
+  it("cleans completed legacy evidence after draft cancellation", async () => {
+    const approvalId = createId();
+    await database().sql`
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, expires_at)
+      values (${approvalId}, ${ids.workspace}, ${ids.agent},
+        ${JSON.stringify({ kind: "tool-call", toolName: "cancel", callId: createId(), input: {} })}::jsonb,
+        'Cancel completed upload', 'cooperative', now() + interval '1 hour')
+    `;
+    const uploaded = await postDraft(approvalId, new TextEncoder().encode("%PDF-cancelled"), "application/pdf");
+    expect(uploaded.status).toBe(200);
+    const { id: artefactId } = await uploaded.json() as { id: string };
+    const [row] = await database().sql`select object_key from artefacts where id = ${artefactId}`;
+    const objectKey = String(row!.object_key);
+    const cancellation = await handle(new Request(`http://mayi.test/api/approvals/${approvalId}/cancel`, {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+    }));
+    expect(cancellation.status).toBe(200);
+    const [marked] = await database().sql`select state from artefacts where id = ${artefactId}`;
+    expect(marked!.state).toBe("DELETING");
+    expect(objectStore.values.has(objectKey)).toBe(true);
+    await expect(cleanupExpiredStagedArtefacts()).resolves.toBeGreaterThanOrEqual(1);
+    expect(objectStore.values.has(objectKey)).toBe(false);
+    expect(await database().sql`select id from artefacts where id = ${artefactId}`).toHaveLength(0);
+  });
+
+  it("cleans completed legacy evidence when the draft is cancelled through MCP", async () => {
+    const approvalId = createId();
+    await database().sql`
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, expires_at)
+      values (${approvalId}, ${ids.workspace}, ${ids.agent},
+        ${JSON.stringify({ kind: "tool-call", toolName: "mcp-cancel", callId: createId(), input: {} })}::jsonb,
+        'MCP cancel completed upload', 'cooperative', now() + interval '1 hour')
+    `;
+    const uploaded = await postDraft(approvalId, new TextEncoder().encode("%PDF-mcp-cancelled"), "application/pdf");
+    const { id: artefactId } = await uploaded.json() as { id: string };
+    const [row] = await database().sql`select object_key from artefacts where id = ${artefactId}`;
+    const response = await handle(new Request("http://mayi.test/api/mcp", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "tools/call",
+        params: { name: "cancel_approval", arguments: { id: approvalId } },
+      }),
+    }));
+    expect(response.status).toBe(200);
+    const [marked] = await database().sql`select state from artefacts where id = ${artefactId}`;
+    expect(marked!.state).toBe("DELETING");
+    await expect(cleanupExpiredStagedArtefacts()).resolves.toBeGreaterThanOrEqual(1);
+    expect(objectStore.values.has(String(row!.object_key))).toBe(false);
+    expect(await database().sql`select id from artefacts where id = ${artefactId}`).toHaveLength(0);
+  });
+
+  it("cleans completed legacy evidence omitted while sealing a subset", async () => {
+    const approvalId = createId();
+    await database().sql`
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, expires_at)
+      values (${approvalId}, ${ids.workspace}, ${ids.agent},
+        ${JSON.stringify({ kind: "tool-call", toolName: "subset", callId: createId(), input: {} })}::jsonb,
+        'Seal an evidence subset', 'cooperative', now() + interval '1 hour')
+    `;
+    const first = await postDraft(approvalId, new TextEncoder().encode("%PDF-first"), "application/pdf");
+    const second = await postDraft(approvalId, new TextEncoder().encode("%PDF-second"), "application/pdf");
+    const firstId = String((await first.json() as { id: string }).id);
+    const secondId = String((await second.json() as { id: string }).id);
+    const [omitted] = await database().sql`select object_key from artefacts where id = ${secondId}`;
+    const seal = await handle(new Request(`http://mayi.test/api/approvals/${approvalId}/seal`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ artefactIds: [firstId] }),
+    }));
+    expect(seal.status).toBe(200);
+    const files = await database().sql`
+      select f.id, f.state, aa.ordinal
+      from artefacts f left join approval_artefacts aa on aa.artefact_id = f.id
+      where f.id in (${firstId}, ${secondId}) order by f.id
+    `;
+    expect(files.find(({ id }) => id === firstId)).toMatchObject({ state: "READY", ordinal: 0 });
+    expect(files.find(({ id }) => id === secondId)).toMatchObject({ state: "DELETING", ordinal: null });
+    await expect(cleanupExpiredStagedArtefacts()).resolves.toBeGreaterThanOrEqual(1);
+    expect(objectStore.values.has(String(omitted!.object_key))).toBe(false);
+    expect(await database().sql`select id from artefacts where id = ${secondId}`).toHaveLength(0);
+    expect(await database().sql`select id from artefacts where id = ${firstId}`).toHaveLength(1);
+  });
+
   it("deletes expired unbound stages from both storage and the database", async () => {
     const { artefactId, objectKey } = await insertExpiredStage("ordinary");
 
@@ -267,6 +398,32 @@ describe.sequential("POST /api/approvals/request/artefacts/:ordinal", () => {
     expect(objectStore.values.has(objectKey)).toBe(false);
     const rows = await database().sql`select id from artefacts where id = ${artefactId}`;
     expect(rows).toHaveLength(0);
+  });
+
+  it("deletes an abandoned legacy upload reservation", async () => {
+    const approvalId = createId();
+    const artefactId = createId();
+    const objectKey = `${ids.workspace}/${approvalId}/${artefactId}`;
+    await database().sql`
+      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, expires_at)
+      values (${approvalId}, ${ids.workspace}, ${ids.agent},
+        ${JSON.stringify({ kind: "tool-call", toolName: "cleanup", callId: createId(), input: {} })}::jsonb,
+        'Abandoned legacy upload', 'cooperative', now() + interval '1 hour')
+    `;
+    await objectStore.putImmutable(objectKey, new TextEncoder().encode("%PDF-abandoned"), "application/pdf");
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, approval_id, agent_id, expires_at, object_key,
+        filename, media_type, size, sha256, state
+      ) values (
+        ${artefactId}, ${ids.workspace}, ${approvalId}, ${ids.agent}, now() - interval '1 minute',
+        ${objectKey}, 'abandoned.pdf', 'application/pdf', 14, ${"d".repeat(64)}, 'UPLOADING'
+      )
+    `;
+
+    await expect(cleanupExpiredStagedArtefacts()).resolves.toBeGreaterThanOrEqual(1);
+    expect(objectStore.values.has(objectKey)).toBe(false);
+    expect(await database().sql`select id from artefacts where id = ${artefactId}`).toHaveLength(0);
   });
 
   it("resumes cleanup after a crash immediately after the DELETING commit", async () => {
