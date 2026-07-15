@@ -8,6 +8,7 @@ import {
   UnsupportedMayiInputError,
   type MayiChannelState,
   type MayiContinuationStateV1,
+  type MayiArtefactsContext,
 } from "./channel";
 import { MAYI_CALLBACK_PATH } from "./origin";
 
@@ -149,6 +150,7 @@ describe("mayiChannel", () => {
     expect(options.state).toEqual({
       rawContinuationToken: options.continuationToken,
       target: { mayiUserId: "ApproverAbcd" },
+      callbackRequests: {},
     });
     expect(options.continuationToken.split(":"))
       .toHaveLength(2);
@@ -215,6 +217,142 @@ describe("mayiChannel", () => {
     expect(keys[0]).not.toBe(keys[1]);
     await expect(createMayiIdempotencyKey("eve-session-one", "request-one"))
       .resolves.toBe(keys[0]);
+    const bodies = capturedCalls(fetchMock).map((call) => call.body);
+    expect(bodies[0]).toEqual(bodies[2]);
+    expect(bodies[1]).toEqual(bodies[3]);
+    expect(state.callbackRequests).toMatchObject({
+      "request-one": { state: bodies[0]!.callback.state },
+      "request-two": { state: bodies[1]!.callback.state },
+    });
+  });
+
+  it("renders and stages approval evidence from request and session context", async () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const hook = vi.fn(async (context: MayiArtefactsContext) => {
+      void context;
+      return [{ filename: "preview.png", mediaType: "image/png" as const, body: bytes }];
+    });
+    const fetchMock = vi.fn<MayiFetch>(async (input, init) => {
+      if (String(input).endsWith("/artefacts/0")) {
+        return Response.json({
+          id: "ArtefactAbcd",
+          filename: "preview.png",
+          mediaType: "image/png",
+          size: bytes.byteLength,
+          sha256: "c".repeat(64),
+        });
+      }
+      const body = JSON.parse(String(init?.body)) as { action: unknown; explanation: string };
+      return Response.json(pendingApproval(body.action, body.explanation));
+    });
+    const fixture = await runtime(fetchMock);
+    const artefactRuntime = createRuntime({
+      getAccessToken: async () => "fabricated-oauth-token",
+      mayiOrigin: "https://mayi.example",
+      publicOrigin: "https://agent.example",
+      callbackStateCodec: fixture.callbackStateCodec,
+      environment: { NODE_ENV: "test" },
+      artefacts: hook,
+      fetch: fetchMock,
+    }, { now: () => now });
+    const handler = createInputRequestedHandler(artefactRuntime);
+    const request = approvalRequest("call-one", "request-one");
+    const session = { id: "eve-session-one", continuationToken: "channels/mayi:token", auth: null } as never;
+    const getSandbox = vi.fn(async () => ({}) as never);
+    const state: MayiChannelState = { rawContinuationToken: "mayi:token", target: {} };
+
+    await handler({ requests: [request] }, { state, session }, { session, getSandbox });
+    await handler({ requests: [request] }, { state, session }, { session, getSandbox });
+
+    expect(hook).toHaveBeenCalledTimes(2);
+    expect(hook.mock.calls[0]![0]).toMatchObject({ request, session });
+    expect(hook.mock.calls[0]![0].getSandbox).toBe(getSandbox);
+    expect(hook.mock.calls[0]![0].signal).toBeInstanceOf(AbortSignal);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const [, uploadInit] = fetchMock.mock.calls[0]!;
+    expect(uploadInit?.body).toBe(bytes);
+    const finalBody = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)) as Record<string, unknown>;
+    expect(finalBody.artefactIds).toEqual(["ArtefactAbcd"]);
+    expect(JSON.parse(String(fetchMock.mock.calls[3]![1]?.body))).toEqual(finalBody);
+    expect(new Headers(fetchMock.mock.calls[0]![1]?.headers).get("idempotency-key"))
+      .toBe(new Headers(fetchMock.mock.calls[2]![1]?.headers).get("idempotency-key"));
+    expect(JSON.stringify(request)).not.toContain("preview.png");
+  });
+
+  it("lets successful requests finish when another request in the Eve batch fails", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(createRuntime({
+      getAccessToken: async () => "token",
+      mayiOrigin: "https://mayi.example",
+      publicOrigin: "https://agent.example",
+      callbackStateCodec: fixture.callbackStateCodec,
+      environment: { NODE_ENV: "test" },
+      artefacts: async ({ request }) => {
+        if (request.requestId === "request-one") throw new Error("render failed");
+        return [];
+      },
+      fetch: fetchMock,
+    }, { now: () => now }));
+    const session = { id: "eve-session-one", continuationToken: "token", auth: null } as never;
+    const error = await handler({ requests: [
+      approvalRequest("call-one", "request-one"),
+      approvalRequest("call-two", "request-two"),
+    ] }, {
+      state: { rawContinuationToken: "mayi:token", target: {} },
+      session,
+    }, { session, getSandbox: async () => ({}) as never }).catch((cause) => cause) as AggregateError;
+
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(capturedCalls(fetchMock)[0]!.body.action.callId).toBe("call-two");
+  });
+
+  it.each([undefined, null, []] as const)("omits artefactIds when the hook returns %s", async (result) => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(createRuntime({
+      getAccessToken: async () => "token",
+      mayiOrigin: "https://mayi.example",
+      publicOrigin: "https://agent.example",
+      callbackStateCodec: fixture.callbackStateCodec,
+      environment: { NODE_ENV: "test" },
+      artefacts: async () => result,
+      fetch: fetchMock,
+    }, { now: () => now }));
+    const session = { id: "eve-session-one", continuationToken: "token", auth: null } as never;
+    await handler({ requests: [approvalRequest("call-one", "request-one")] }, {
+      state: { rawContinuationToken: "mayi:token", target: {} },
+      session,
+    }, { session, getSandbox: async () => ({}) as never });
+    expect(capturedCalls(fetchMock)[0]!.body).not.toHaveProperty("artefactIds");
+  });
+
+  it("times out without creating an approval when the artefact hook does not finish", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    let signal: AbortSignal | undefined;
+    const handler = createInputRequestedHandler(createRuntime({
+      getAccessToken: async () => "token",
+      mayiOrigin: "https://mayi.example",
+      publicOrigin: "https://agent.example",
+      callbackStateCodec: fixture.callbackStateCodec,
+      environment: { NODE_ENV: "test" },
+      artefactTimeoutMs: 5,
+      artefacts: async (context) => {
+        signal = context.signal;
+        return await new Promise(() => undefined);
+      },
+      fetch: fetchMock,
+    }, { now: () => now }));
+    const session = { id: "eve-session-one", continuationToken: "token", auth: null } as never;
+    await expect(handler({ requests: [approvalRequest("call-one", "request-one")] }, {
+      state: { rawContinuationToken: "mayi:token", target: {} },
+      session,
+    }, { session, getSandbox: async () => ({}) as never })).rejects.toBeInstanceOf(AggregateError);
+    expect(signal?.aborted).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -233,8 +371,10 @@ describe("mayiChannel", () => {
     const promise = handler({ requests: [request] }, {
       state: { rawContinuationToken: "mayi:durable-token", target: {} },
     }, { session: { id: "eve-session-one" } });
-    await expect(promise).rejects.toBeInstanceOf(UnsupportedMayiInputError);
-    await expect(promise).rejects.toThrow(/supports only tool approval confirmations/u);
+    const error = await promise.catch((cause) => cause) as AggregateError;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors[0]).toBeInstanceOf(UnsupportedMayiInputError);
+    expect(error.errors[0]).toHaveProperty("message", expect.stringMatching(/supports only tool approval confirmations/u));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -247,9 +387,11 @@ describe("mayiChannel", () => {
       environment: {},
       fetch: fetchMock,
     }, { now: () => now }));
-    await expect(handler({ requests: [approvalRequest("call-one", "request-one")] }, {
+    const error = await handler({ requests: [approvalRequest("call-one", "request-one")] }, {
       state: { rawContinuationToken: "mayi:durable-token", target: {} },
-    }, { session: { id: "eve-session-one" } })).rejects.toMatchObject({ code: "PUBLIC_ORIGIN_UNAVAILABLE" });
+    }, { session: { id: "eve-session-one" } }).catch((cause) => cause) as AggregateError;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors[0]).toMatchObject({ code: "PUBLIC_ORIGIN_UNAVAILABLE" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

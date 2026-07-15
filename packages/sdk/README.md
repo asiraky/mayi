@@ -36,6 +36,33 @@ const approval = await mayi.approvals.request({
 console.log(approval.id, approval.status); // PENDING
 ```
 
+To attach evidence, stage each PDF or image with the request idempotency key and
+its zero-based ordinal, then pass the returned IDs in the same order:
+
+```ts
+const requestKey = "deploy-2026-07-15";
+const evidence = await mayi.stageRequestArtefact(
+  requestKey,
+  0,
+  "deployment-plan.pdf",
+  "application/pdf",
+  pdfBytes,
+);
+
+const approval = await mayi.approvals.request({
+  action,
+  explanation: "Deploy the reviewed release.",
+  expiresInSeconds: 3600,
+  callback,
+  artefactIds: [evidence.id],
+}, { idempotencyKey: requestKey });
+```
+
+Exact upload retries return the same staged artefact. Reusing the key and
+ordinal with changed bytes or metadata is rejected. Staged evidence is claimed
+atomically when the approval becomes pending and expires after 24 hours if it is
+never claimed.
+
 The OAuth host owns the browser Authorization Code + PKCE flow, stores the
 rotating refresh grant, refreshes it when needed, and supplies a current access
 token. The token provider is called for each authenticated request. The SDK

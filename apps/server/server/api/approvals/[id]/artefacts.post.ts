@@ -25,8 +25,8 @@ export default defineEventHandler(async (event) => {
   const digest = await sha256(body);
   await objects().putImmutable(objectKey, body, mediaType);
   await database().sql`
-    insert into artefacts (id, workspace_id, approval_id, object_key, filename, media_type, size, sha256)
-    values (${id}, ${auth.workspaceId}, ${approvalId}, ${objectKey}, ${filename}, ${mediaType}, ${body.byteLength}, ${digest})
+    insert into artefacts (id, workspace_id, approval_id, agent_id, object_key, filename, media_type, size, sha256)
+    values (${id}, ${auth.workspaceId}, ${approvalId}, ${auth.agentId}, ${objectKey}, ${filename}, ${mediaType}, ${body.byteLength}, ${digest})
   `;
   return { id, filename, mediaType, size: body.byteLength, sha256: digest };
 });

@@ -8,6 +8,8 @@ import {
   createWebhookVerifier,
   type CallbackStateCodec,
   type CallbackStateKey,
+  type ArtefactBody,
+  type ArtefactMediaType,
   type GetAccessToken,
   type MayiFetch,
   type WebhookVerifier,
@@ -19,7 +21,9 @@ import {
   type Channel,
   type ChannelEvents,
   type RouteHandlerArgs,
+  type SessionHandle,
 } from "eve/channels";
+import type { SandboxSession } from "eve/sandbox";
 import {
   MAYI_CALLBACK_PATH,
   MayiEveConfigurationError,
@@ -37,6 +41,9 @@ const MAX_CONTINUATION_TOKEN_LENGTH = 4_096;
 const MAX_CORRELATION_ID_LENGTH = 512;
 const MAX_EXPIRY_LENGTH = 64;
 const ACCEPTANCE_RECONCILIATION_TIMEOUT_MS = 2_000;
+const DEFAULT_ARTEFACT_TIMEOUT_MS = 30_000;
+const MAX_ARTEFACTS = 20;
+const ARTEFACT_CONCURRENCY = 3;
 
 export interface MayiReceiveTarget {
   /** Mayi user to suggest as the approver for approvals started by this session. */
@@ -47,6 +54,13 @@ export interface MayiChannelState {
   /** The channel-local token passed to Eve send(); never derive this by stripping a namespace. */
   rawContinuationToken: string | null;
   target: MayiReceiveTarget | null;
+  /** Opaque callback material retained so a redelivered Eve event is retry-compatible. */
+  callbackRequests?: Record<string, MayiCallbackRequestState>;
+}
+
+export interface MayiCallbackRequestState {
+  readonly state: string;
+  readonly approvalExpiresAt: string;
 }
 
 export interface MayiContinuationStateV1 {
@@ -64,6 +78,27 @@ export interface MayiWebhookEventStore {
   readonly markProcessed: (eventId: string) => void | Promise<void>;
 }
 
+export type MayiArtefactMediaType = ArtefactMediaType;
+export type MayiArtefactBody = ArtefactBody;
+
+export interface MayiApprovalArtefact {
+  readonly filename: string;
+  readonly mediaType: MayiArtefactMediaType;
+  readonly body: MayiArtefactBody;
+  readonly size?: number;
+}
+
+export interface MayiArtefactsContext {
+  readonly request: Readonly<EveInputRequest>;
+  readonly session: Readonly<Pick<SessionHandle, "id" | "continuationToken" | "auth">>;
+  readonly getSandbox: () => Promise<SandboxSession>;
+  readonly signal: AbortSignal;
+}
+
+export type MayiArtefactsHook = (
+  context: MayiArtefactsContext,
+) => readonly MayiApprovalArtefact[] | null | undefined | Promise<readonly MayiApprovalArtefact[] | null | undefined>;
+
 export interface MayiChannelConfig {
   readonly getAccessToken: GetAccessToken;
   /** Mayi API origin. Defaults to MAYI_ORIGIN, then https://app.mayi.sh. */
@@ -72,6 +107,10 @@ export interface MayiChannelConfig {
   readonly publicOrigin?: string;
   readonly approvalExpiresInSeconds?: number;
   readonly fetch?: MayiFetch;
+  /** Produces evidence before the gated tool executes. Omit to preserve the no-evidence path. */
+  readonly artefacts?: MayiArtefactsHook;
+  /** Maximum time for one request's hook and uploads. Defaults to 30 seconds. */
+  readonly artefactTimeoutMs?: number;
   /** Optional durable duplicate fence. Both hooks must be backed by the same store. */
   readonly eventStore?: MayiWebhookEventStore;
   /** Advanced host/testing injection for Mayi's public webhook JWKS request. */
@@ -84,13 +123,14 @@ export interface MayiChannelConfig {
 
 interface MayiChannelContext {
   state: MayiChannelState;
+  session: Readonly<Pick<SessionHandle, "id" | "continuationToken" | "auth">>;
 }
 
 interface InputRequestData {
   readonly requests: readonly EveInputRequest[];
 }
 
-interface EveInputRequest {
+export interface EveInputRequest {
   readonly action: {
     readonly kind: "tool-call";
     readonly toolName: string;
@@ -106,14 +146,37 @@ interface EveInputRequest {
 
 interface MayiInputChannel {
   readonly state: MayiChannelState;
+  readonly session?: Readonly<Pick<SessionHandle, "id" | "continuationToken" | "auth">>;
 }
 
 interface MayiInputContext {
   readonly session: { readonly id: string };
+  readonly getSandbox?: () => Promise<SandboxSession>;
+}
+
+class Semaphore {
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(private readonly maximum: number) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.maximum) await new Promise<void>((resolve) => this.waiting.push(resolve));
+    this.active++;
+    try {
+      return await task();
+    } finally {
+      this.active--;
+      this.waiting.shift()?.();
+    }
+  }
 }
 
 interface MayiChannelRuntime {
   readonly client: MayiClient;
+  readonly artefacts?: MayiArtefactsHook;
+  readonly artefactSemaphore: Semaphore;
+  readonly artefactTimeoutMs: number;
   readonly codec: () => Promise<CallbackStateCodec>;
   readonly environment: MayiEnvironment;
   readonly eventStore?: MayiWebhookEventStore;
@@ -217,6 +280,16 @@ export function createRuntime(
       "eventStore must provide both isProcessed and markProcessed",
     );
   }
+  const artefactTimeoutMs = config.artefactTimeoutMs ?? DEFAULT_ARTEFACT_TIMEOUT_MS;
+  if (!Number.isInteger(artefactTimeoutMs) || artefactTimeoutMs < 1 || artefactTimeoutMs > 5 * 60 * 1_000) {
+    throw new MayiEveConfigurationError(
+      "INVALID_CONFIG",
+      "artefactTimeoutMs must be an integer between 1 and 300000",
+    );
+  }
+  if (config.artefacts !== undefined && typeof config.artefacts !== "function") {
+    throw new MayiEveConfigurationError("INVALID_CONFIG", "artefacts must be a function");
+  }
   const environment = config.environment ?? getRuntimeEnvironment();
   const mayiOrigin = config.mayiOrigin ?? environment.MAYI_ORIGIN ?? DEFAULT_MAYI_ORIGIN;
   const client = new MayiClient({
@@ -227,6 +300,9 @@ export function createRuntime(
   let codecPromise: Promise<CallbackStateCodec> | undefined;
   let verifier: WebhookVerifier | undefined;
   return {
+    ...(config.artefacts === undefined ? {} : { artefacts: config.artefacts }),
+    artefactSemaphore: new Semaphore(ARTEFACT_CONCURRENCY),
+    artefactTimeoutMs,
     client,
     environment,
     ...(config.eventStore === undefined ? {} : { eventStore: config.eventStore }),
@@ -287,19 +363,25 @@ async function submitOneRequest(
     );
   }
 
-  const now = runtime.now();
-  const approvalExpiresAt = new Date(now + runtime.expiresInSeconds * 1_000).toISOString();
-  const stateExpiresAt = new Date(
-    now + (runtime.expiresInSeconds + CALLBACK_MAX_RETRY_WINDOW_SECONDS) * 1_000,
-  ).toISOString();
-  const codec = await runtime.codec();
-  const state = await codec.seal({
-    version: 1,
-    rawContinuationToken,
-    requestId: request.requestId,
-    sessionId: context.session.id,
-    expiresAt: stateExpiresAt,
-  } satisfies MayiContinuationStateV1, { approvalExpiresAt });
+  let callbackRequest = channel.state.callbackRequests?.[request.requestId];
+  if (!callbackRequest) {
+    const now = runtime.now();
+    const approvalExpiresAt = new Date(now + runtime.expiresInSeconds * 1_000).toISOString();
+    const stateExpiresAt = new Date(
+      now + (runtime.expiresInSeconds + CALLBACK_MAX_RETRY_WINDOW_SECONDS) * 1_000,
+    ).toISOString();
+    const codec = await runtime.codec();
+    const state = await codec.seal({
+      version: 1,
+      rawContinuationToken,
+      requestId: request.requestId,
+      sessionId: context.session.id,
+      expiresAt: stateExpiresAt,
+    } satisfies MayiContinuationStateV1, { approvalExpiresAt });
+    callbackRequest = { state, approvalExpiresAt };
+    channel.state.callbackRequests ??= {};
+    channel.state.callbackRequests[request.requestId] = callbackRequest;
+  }
   const publicOrigin = resolvePublicOrigin({
     environment: runtime.environment,
     ...(runtime.publicOriginOverride === undefined
@@ -307,6 +389,7 @@ async function submitOneRequest(
       : { developmentOverride: runtime.publicOriginOverride }),
   });
   const idempotencyKey = await createMayiIdempotencyKey(context.session.id, request.requestId);
+  const artefactIds = await stageRequestArtefacts(request, channel, context, runtime, idempotencyKey);
   await runtime.client.approvals.request({
     action: request.action,
     explanation: request.prompt,
@@ -316,14 +399,77 @@ async function submitOneRequest(
       : { suggestedApproverId: channel.state.target.mayiUserId }),
     callback: {
       url: `${publicOrigin}${MAYI_CALLBACK_PATH}`,
-      state,
+      state: callbackRequest.state,
     },
+    ...(artefactIds === undefined ? {} : { artefactIds }),
   }, { idempotencyKey });
+}
+
+async function stageRequestArtefacts(
+  request: EveInputRequest,
+  channel: MayiInputChannel,
+  context: MayiInputContext,
+  runtime: MayiChannelRuntime,
+  idempotencyKey: string,
+): Promise<string[] | undefined> {
+  if (!runtime.artefacts) return undefined;
+  if (!channel.session || !context.getSandbox) {
+    throw new MayiEveConfigurationError("INVALID_CONFIG", "Eve did not provide the artefact hook context");
+  }
+  const session = channel.session;
+  const getSandbox = context.getSandbox;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("Mayi artefact preparation timed out")), runtime.artefactTimeoutMs);
+  try {
+    return await Promise.race([
+      runtime.artefactSemaphore.run(async () => {
+        const artefacts = await runtime.artefacts!({
+          request,
+          session,
+          getSandbox,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) throw controller.signal.reason;
+        if (artefacts == null || artefacts.length === 0) return undefined;
+        if (!Array.isArray(artefacts) || artefacts.length > MAX_ARTEFACTS) {
+          throw new MayiEveConfigurationError("INVALID_CONFIG", "artefacts must return at most 20 items");
+        }
+        const ids: string[] = [];
+        for (const [ordinal, artefact] of artefacts.entries()) {
+          if (controller.signal.aborted) throw controller.signal.reason;
+          const staged = await runtime.client.stageRequestArtefact(
+            idempotencyKey,
+            ordinal,
+            artefact.filename,
+            artefact.mediaType,
+            artefact.body,
+            {
+              signal: controller.signal,
+              ...(artefact.size === undefined ? {} : { size: artefact.size }),
+            },
+          );
+          ids.push(staged.id);
+        }
+        return ids;
+      }),
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true });
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function createInputRequestedHandler(runtime: MayiChannelRuntime) {
   return async (data: InputRequestData, channel: MayiInputChannel, context: MayiInputContext): Promise<void> => {
-    await Promise.all(data.requests.map((request) => submitOneRequest(request, channel, context, runtime)));
+    const results = await Promise.allSettled(
+      data.requests.map((request) => submitOneRequest(request, channel, context, runtime)),
+    );
+    const failures = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason);
+    if (failures.length) throw new AggregateError(failures, "One or more Mayi approval requests failed");
   };
 }
 
@@ -524,9 +670,12 @@ export function mayiChannel(config: MayiChannelConfig): Channel<MayiChannelState
 
   return defineChannel<MayiChannelState, MayiChannelContext, MayiReceiveTarget>({
     kindHint: "mayi",
-    state: { rawContinuationToken: null, target: null },
-    context(state) {
-      return { state };
+    state: { rawContinuationToken: null, target: null, callbackRequests: {} },
+    context(state, session) {
+      return {
+        state,
+        session: { id: session.id, continuationToken: session.continuationToken, auth: session.auth },
+      };
     },
     routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, createApprovalResolvedHandler(runtime))],
     async receive(input, { send }) {
@@ -542,7 +691,7 @@ export function mayiChannel(config: MayiChannelConfig): Channel<MayiChannelState
       return send(input.message, {
         auth: input.auth,
         continuationToken: rawContinuationToken,
-        state: { rawContinuationToken, target },
+        state: { rawContinuationToken, target, callbackRequests: {} },
       });
     },
     events: { "input.requested": inputRequested },

@@ -13,6 +13,7 @@ import {
   type OutboxJob,
 } from "../../../utils/callback-outbox";
 import { requireCronSecret } from "../../../utils/internal-auth";
+import { cleanupExpiredStagedArtefacts } from "../../../utils/staged-artefact-cleanup";
 
 type Job = OutboxJob;
 
@@ -79,6 +80,7 @@ async function email(job: Job): Promise<void> {
 
 export default defineEventHandler(async (event) => {
   requireCronSecret(event);
+  const cleanedArtefacts = await cleanupExpiredStagedArtefacts();
   let expired = 0;
   for (; expired < 100; expired++) {
     const didExpire = await database().sql.begin(async (sql) => {
@@ -128,5 +130,5 @@ export default defineEventHandler(async (event) => {
       }
     }
   }
-  return { expired, processed };
+  return { cleanedArtefacts, expired, processed };
 });

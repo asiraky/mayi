@@ -45,6 +45,58 @@ export default defineTool({
 });
 ```
 
+## Approval evidence
+
+Approval happens before Eve calls the gated tool's `execute()` function. An
+evidence hook can render from the proposed tool input, fetch an existing object,
+or read a file created by an earlier tool. It cannot use the gated tool's result,
+because that result does not exist until after the human approves.
+
+Configure `artefacts` when an approval should include a PDF or image:
+
+```ts
+export default mayiChannel({
+  getAccessToken: () => credentials.getAccessToken("mayi"),
+  async artefacts({ request, signal }) {
+    const pdf = await renderDeploymentPlan(request.action.input, { signal });
+    return [{
+      filename: "deployment-plan.pdf",
+      mediaType: "application/pdf",
+      body: pdf,
+    }];
+  },
+});
+```
+
+The hook receives the complete Eve input request, a read-only session snapshot,
+`getSandbox()`, and an abort signal. For evidence already in object storage:
+
+```ts
+async artefacts({ request, signal }) {
+  const response = await fetch(String(request.action.input.previewUrl), { signal });
+  return [{ filename: "preview.webp", mediaType: "image/webp", body: response.body! }];
+}
+```
+
+For a file produced by an earlier tool, read through Eve's supported sandbox
+API and return the bytes:
+
+```ts
+async artefacts({ getSandbox }) {
+  const sandbox = await getSandbox();
+  const body = await sandbox.readBinaryFile("/workspace/output/report.pdf");
+  return [{ filename: "report.pdf", mediaType: "application/pdf", body }];
+}
+```
+
+`undefined`, `null`, and an empty array all mean no evidence and preserve the
+ordinary one-call approval path. A request may return at most 20 artefacts;
+each must be a PDF, PNG, JPEG, or WebP no larger than 25 MiB. Returned order is
+the order shown to the approver and bound into the approval manifest. Hook,
+validation, timeout, or upload failures fail closed: Mayi does not create an
+approval with silently missing evidence. `artefactTimeoutMs` defaults to 30
+seconds and its signal should be passed to rendering, fetch, and file work.
+
 ## Scheduled and cross-channel handoff
 
 Mayi handles `input.requested` only for sessions owned by the Mayi channel. It

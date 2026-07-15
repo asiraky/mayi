@@ -17,5 +17,7 @@ export default defineEventHandler(async (event) => {
   setHeader(event, "content-type", String(row.media_type));
   setHeader(event, "content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(String(row.filename))}`);
   setHeader(event, "cache-control", "private, no-store");
+  setHeader(event, "x-content-type-options", "nosniff");
+  setHeader(event, "content-security-policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
   return object.bytes;
 });

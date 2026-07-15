@@ -163,7 +163,12 @@ export const approvalCallbacks = pgTable("approval_callbacks", {
 export const artefacts = pgTable("artefacts", {
   id: identifier("id").primaryKey(),
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
-  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),
+  approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }),
+  agentId: identifier("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+  requestKey: text("request_key"),
+  uploadOrdinal: integer("upload_ordinal"),
+  uploadPayloadHash: text("upload_payload_hash"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   objectKey: text("object_key").notNull().unique(),
   filename: text("filename").notNull(),
   mediaType: text("media_type").notNull(),
@@ -171,7 +176,20 @@ export const artefacts = pgTable("artefacts", {
   sha256: text("sha256").notNull(),
   state: text("state").default("READY").notNull(),
   createdAt,
-}, (t) => [index("artefacts_approval_idx").on(t.workspaceId, t.approvalId)]);
+}, (t) => [
+  index("artefacts_approval_idx").on(t.workspaceId, t.approvalId),
+  uniqueIndex("artefacts_staged_request_uidx")
+    .on(t.workspaceId, t.agentId, t.requestKey, t.uploadOrdinal)
+    .where(sql`${t.requestKey} IS NOT NULL`),
+  index("artefacts_staged_expiry_idx").on(t.expiresAt).where(sql`${t.approvalId} IS NULL AND ${t.expiresAt} IS NOT NULL`),
+  check("artefacts_state_check", sql`${t.state} IN ('UPLOADING', 'READY')`),
+  check("artefacts_upload_ordinal_check", sql`${t.uploadOrdinal} IS NULL OR ${t.uploadOrdinal} BETWEEN 0 AND 19`),
+  check("artefacts_staging_check", sql`
+    (${t.requestKey} IS NULL AND ${t.approvalId} IS NOT NULL)
+    OR
+    (${t.requestKey} IS NOT NULL AND ${t.agentId} IS NOT NULL AND ${t.uploadOrdinal} IS NOT NULL AND ${t.uploadPayloadHash} IS NOT NULL AND ${t.expiresAt} IS NOT NULL)
+  `),
+]);
 
 export const approvalArtefacts = pgTable("approval_artefacts", {
   approvalId: identifier("approval_id").references(() => approvals.id, { onDelete: "cascade" }).notNull(),

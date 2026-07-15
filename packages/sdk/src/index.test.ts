@@ -201,6 +201,70 @@ describe("MayiClient safe failures", () => {
 });
 
 describe("MayiClient artifact and browser workflows", () => {
+  it("stages request-bound evidence with an ordinal and stable idempotency key", async () => {
+    const uploaded = {
+      id: "ArtefactAbcd",
+      filename: "release proof.pdf",
+      mediaType: "application/pdf",
+      size: 9,
+      sha256: "c".repeat(64),
+    };
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse(uploaded));
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      getAccessToken: async () => "stage-token",
+      fetch: fetchMock,
+    });
+    const bytes = new TextEncoder().encode("%PDF-test");
+
+    await expect(client.stageRequestArtefact(
+      "request-key",
+      0,
+      "release proof.pdf",
+      "application/pdf",
+      bytes,
+    )).resolves.toEqual(uploaded);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const headers = new Headers(init?.headers);
+    expect(String(url)).toBe("https://mayi.example/api/approvals/request/artefacts/0");
+    expect(init?.body).toBe(bytes);
+    expect(headers.get("authorization")).toBe("Bearer stage-token");
+    expect(headers.get("idempotency-key")).toBe("request-key");
+    expect(headers.get("x-mayi-filename")).toBe("release%20proof.pdf");
+    expect(headers.get("content-length")).toBe("9");
+  });
+
+  it("rejects invalid staged evidence before authentication or upload", async () => {
+    const getAccessToken = vi.fn(async () => "token");
+    const fetchMock = vi.fn<MayiFetch>();
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await expect(client.stageRequestArtefact(
+      "request-key",
+      20,
+      "proof.pdf",
+      "application/pdf",
+      new Uint8Array([1]),
+    )).rejects.toBeInstanceOf(MayiConfigurationError);
+    await expect(client.stageRequestArtefact(
+      "request-key",
+      0,
+      "proof.pdf",
+      "text/plain" as never,
+      new Uint8Array([1]),
+    )).rejects.toBeInstanceOf(MayiConfigurationError);
+    await expect(client.stageRequestArtefact(
+      "request-key",
+      0,
+      "proof.pdf",
+      "application/pdf",
+      new Uint8Array(25 * 1024 * 1024 + 1),
+    )).rejects.toBeInstanceOf(MayiConfigurationError);
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps draft, binary upload, and seal operations with fresh bearer tokens", async () => {
     const createInput: CreateApproval = {
       action: {

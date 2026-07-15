@@ -10,6 +10,7 @@ import type {
   CreateApproval,
   Decision,
   Session,
+  StagedArtefact,
 } from "./public-contracts";
 
 export type {
@@ -24,6 +25,7 @@ export type {
   Decision,
   EnforcementMode,
   Session,
+  StagedArtefact,
   ToolCallAction,
   VersionedAction,
 } from "./public-contracts";
@@ -44,6 +46,11 @@ export interface ApprovalRequestOptions {
   idempotencyKey: string;
 }
 
+export interface StageRequestArtefactOptions {
+  signal?: AbortSignal | undefined;
+  size?: number | undefined;
+}
+
 export type PendingApproval = Approval & {
   state: "PENDING";
   sealedAt: string;
@@ -52,6 +59,46 @@ export type PendingApproval = Approval & {
 };
 export type UploadedArtefact = Omit<Artefact, "ordinal">;
 export type ArtefactMediaType = "application/pdf" | "image/png" | "image/jpeg" | "image/webp";
+export type ArtefactBody = Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array>;
+
+const MAX_ARTEFACT_SIZE = 25 * 1024 * 1024;
+const ARTEFACT_MEDIA_TYPES = new Set<ArtefactMediaType>([
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+
+function limitArtefactStream(stream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
+  let size = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read();
+        if (result.done) {
+          controller.close();
+          return;
+        }
+        if (!(result.value instanceof Uint8Array)) {
+          await reader.cancel("Artefact streams must contain Uint8Array chunks");
+          controller.error(new MayiConfigurationError("artefact streams must contain byte chunks"));
+          return;
+        }
+        size += result.value.byteLength;
+        if (size > MAX_ARTEFACT_SIZE) {
+          await reader.cancel("Artefact exceeds 25 MiB");
+          controller.error(new MayiConfigurationError("artefact size must not exceed 25 MiB"));
+          return;
+        }
+        controller.enqueue(result.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel(reason) { await reader.cancel(reason); },
+  });
+}
 
 export class MayiConfigurationError extends Error {
   constructor(message = "The Mayi client configuration is invalid") {
@@ -219,6 +266,61 @@ export class MayiClient {
       body: JSON.stringify(input),
     }, "required-access-token");
     return parsePendingApproval(value);
+  }
+
+  async stageRequestArtefact(
+    requestKey: string,
+    ordinal: number,
+    filename: string,
+    mediaType: ArtefactMediaType,
+    body: ArtefactBody,
+    options: StageRequestArtefactOptions = {},
+  ): Promise<StagedArtefact> {
+    if (!validIdempotencyKey(requestKey)) {
+      throw new MayiConfigurationError("requestKey must contain 1 to 200 characters");
+    }
+    if (!Number.isInteger(ordinal) || ordinal < 0 || ordinal >= 20) {
+      throw new MayiConfigurationError("ordinal must be an integer between 0 and 19");
+    }
+    if (typeof filename !== "string" || filename.trim().length < 1 || filename.length > 255) {
+      throw new MayiConfigurationError("filename must contain 1 to 255 characters");
+    }
+    if (!ARTEFACT_MEDIA_TYPES.has(mediaType)) {
+      throw new MayiConfigurationError("mediaType must be PDF, PNG, JPEG, or WebP");
+    }
+    const knownSize = body instanceof Uint8Array
+      ? body.byteLength
+      : body instanceof ArrayBuffer
+        ? body.byteLength
+        : typeof Blob !== "undefined" && body instanceof Blob
+          ? body.size
+          : options.size;
+    if (knownSize !== undefined && (!Number.isInteger(knownSize) || knownSize < 1 || knownSize > MAX_ARTEFACT_SIZE)) {
+      throw new MayiConfigurationError("artefact size must be between 1 byte and 25 MiB");
+    }
+
+    const headers = new Headers({
+      "content-type": mediaType,
+      "idempotency-key": requestKey,
+      "x-mayi-filename": encodeURIComponent(filename),
+    });
+    if (knownSize !== undefined) headers.set("content-length", String(knownSize));
+    const requestBody = body instanceof ReadableStream ? limitArtefactStream(body) : body;
+    const init: RequestInit & { duplex?: "half" } = {
+      method: "POST",
+      headers,
+      body: requestBody as BodyInit,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    };
+    if (requestBody instanceof ReadableStream) init.duplex = "half";
+    const value = await this.request(
+      `/api/approvals/request/artefacts/${ordinal}`,
+      init,
+      "required-access-token",
+    );
+    const parsed = ArtefactSchema.omit({ ordinal: true }).safeParse(value);
+    if (!parsed.success) throw new MayiResponseError();
+    return parsed.data;
   }
 
   signup(input: { email: string; password: string; displayName: string; bootstrapSecret?: string }) {

@@ -76,7 +76,10 @@ export interface ApprovalRequest {
   suggestedApproverId?: string | undefined;
   expiresInSeconds: number;
   callback: ApprovalCallback;
+  artefactIds?: string[] | undefined;
 }
+
+export type StagedArtefact = Omit<Artefact, "ordinal">;
 
 interface ApprovalResolvedEventBase {
   id: string;

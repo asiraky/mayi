@@ -19,7 +19,15 @@ export default defineEventHandler(async (event) => {
   } catch (error) {
     asHttpError(error);
   }
-  const payloadHash = await canonicalDigest(input);
+  if (input.artefactIds && new Set(input.artefactIds).size !== input.artefactIds.length) {
+    throw createError({ statusCode: 422, statusMessage: "Artefacts may only appear once" });
+  }
+  // Callback state is randomized opaque ciphertext. It is first-write-wins and is not
+  // semantic request content, so a lost-response retry may safely carry a new ciphertext.
+  const payloadHash = await canonicalDigest({
+    ...input,
+    callback: { url: input.callback.url },
+  });
 
   // An exact replay has already passed callback authorization and SSRF checks. Returning
   // it before DNS validation makes retries reliable even when DNS is temporarily down.
@@ -85,7 +93,38 @@ export default defineEventHandler(async (event) => {
       asHttpError(error);
     }
 
-    const digests = await freezeDigests(input.action, []);
+    const artefactIds = input.artefactIds ?? [];
+    const files = artefactIds.length ? await sql`
+      select id, filename, media_type, size, sha256, upload_ordinal
+      from artefacts
+      where workspace_id = ${auth.workspaceId}
+        and agent_id = ${auth.agentId}
+        and request_key = ${key}
+        and id in ${sql(artefactIds)}
+        and approval_id is null
+        and state = 'READY'
+        and expires_at > now()
+      for update
+    ` : [];
+    if (files.length !== artefactIds.length) {
+      throw createError({ statusCode: 422, statusMessage: "Every artefact must be ready and staged for this request" });
+    }
+    const byId = new Map(files.map((file) => [String(file.id), file]));
+    const manifest = artefactIds.map((artefactId, ordinal) => {
+      const file = byId.get(artefactId)!;
+      if (Number(file.upload_ordinal) !== ordinal) {
+        throw createError({ statusCode: 422, statusMessage: "Artefact order must match its staged ordinal" });
+      }
+      return {
+        id: artefactId,
+        ordinal,
+        filename: String(file.filename),
+        mediaType: String(file.media_type) as "application/pdf" | "image/png" | "image/jpeg" | "image/webp",
+        size: Number(file.size),
+        sha256: String(file.sha256),
+      };
+    });
+    const digests = await freezeDigests(input.action, manifest);
     const id = createId();
     await sql`
       insert into approvals (
@@ -102,6 +141,20 @@ export default defineEventHandler(async (event) => {
       insert into approval_callbacks (id, approval_id, workspace_id, url, state)
       values (${createId()}, ${id}, ${auth.workspaceId}, ${input.callback.url}, ${input.callback.state})
     `;
+    for (const item of manifest) {
+      const claimed = await sql`
+        update artefacts set approval_id = ${id}
+        where id = ${item.id} and approval_id is null
+        returning id
+      `;
+      if (claimed.length !== 1) {
+        throw createError({ statusCode: 409, statusMessage: "Artefact was claimed by another request" });
+      }
+      await sql`
+        insert into approval_artefacts (approval_id, artefact_id, ordinal)
+        values (${id}, ${item.id}, ${item.ordinal})
+      `;
+    }
     for (const row of eligible) {
       await sql`
         insert into eligible_approvers (approval_id, workspace_id, user_id)

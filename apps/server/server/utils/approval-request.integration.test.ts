@@ -184,6 +184,17 @@ describe.sequential("POST /api/approvals/request", () => {
     expect(replay.status).toBe(200);
     expect(replayed.id).toBe(original.id);
 
+    const randomizedStateReplay = await post({
+      ...baseInput,
+      callback: { ...baseInput.callback, state: "different-randomized-ciphertext" },
+    }, { token: TOKENS.createA, key: "stable-reuse" });
+    expect(randomizedStateReplay.status).toBe(200);
+    expect((await randomizedStateReplay.json() as { id: string }).id).toBe(original.id);
+    const [storedCallback] = await database().sql`
+      select state from approval_callbacks where approval_id = ${original.id}
+    `;
+    expect(storedCallback!.state).toBe(baseInput.callback.state);
+
     const changed = await post({ ...baseInput, explanation: "Different content." }, {
       token: TOKENS.createA,
       key: "stable-reuse",
@@ -201,6 +212,62 @@ describe.sequential("POST /api/approvals/request", () => {
     expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200]);
     const approvals = await Promise.all(responses.map((response) => response.json() as Promise<{ id: string }>));
     expect(new Set(approvals.map(({ id }) => id)).size).toBe(1);
+  });
+
+  it("atomically claims ordered request-bound artefacts into the pending manifest", async () => {
+    const artefactIds = [createId(), createId()] as const;
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
+        expires_at, object_key, filename, media_type, size, sha256, state
+      ) values (
+        ${artefactIds[0]}, ${ids.workspace}, ${ids.agentA}, 'staged-evidence', 0, ${"1".repeat(64)},
+        now() + interval '1 hour', ${`${ids.workspace}/stage/0`}, 'plan.pdf', 'application/pdf', 8, ${"a".repeat(64)}, 'READY'
+      ), (
+        ${artefactIds[1]}, ${ids.workspace}, ${ids.agentA}, 'staged-evidence', 1, ${"2".repeat(64)},
+        now() + interval '1 hour', ${`${ids.workspace}/stage/1`}, 'preview.png', 'image/png', 8, ${"b".repeat(64)}, 'READY'
+      )
+    `;
+
+    const response = await post({ ...baseInput, artefactIds: [...artefactIds] }, {
+      token: TOKENS.createA,
+      key: "staged-evidence",
+    });
+    const approval = await response.json() as { id: string; artefacts: Array<{ id: string; ordinal: number }> };
+    expect(response.status).toBe(200);
+    expect(approval.artefacts).toEqual([
+      expect.objectContaining({ id: artefactIds[0], ordinal: 0 }),
+      expect.objectContaining({ id: artefactIds[1], ordinal: 1 }),
+    ]);
+    const claimed = await database().sql`
+      select id, approval_id from artefacts where id in ${database().sql(artefactIds)} order by upload_ordinal
+    `;
+    expect(claimed.map((row) => String(row.approval_id))).toEqual([approval.id, approval.id]);
+    const manifest = await database().sql`
+      select artefact_id, ordinal from approval_artefacts where approval_id = ${approval.id} order by ordinal
+    `;
+    expect(manifest.map((row) => [String(row.artefact_id), Number(row.ordinal)])).toEqual([
+      [artefactIds[0], 0],
+      [artefactIds[1], 1],
+    ]);
+  });
+
+  it("rejects artefacts staged under a different request key", async () => {
+    const artefactId = createId();
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
+        expires_at, object_key, filename, media_type, size, sha256, state
+      ) values (
+        ${artefactId}, ${ids.workspace}, ${ids.agentA}, 'different-request', 0, ${"3".repeat(64)},
+        now() + interval '1 hour', ${`${ids.workspace}/stage/cross`}, 'plan.pdf', 'application/pdf', 8, ${"c".repeat(64)}, 'READY'
+      )
+    `;
+    const response = await post({ ...baseInput, artefactIds: [artefactId] }, {
+      token: TOKENS.createA,
+      key: "cross-request-stage",
+    });
+    expect(response.status).toBe(422);
   });
 
   it("rejects a callback registered only to a different OAuth client", async () => {
@@ -252,8 +319,18 @@ describe.sequential("POST /api/approvals/request", () => {
       for each row execute function test_fail_pending_job()
     `;
     const explanation = `Atomic rollback ${createId()}`;
+    const artefactId = createId();
+    await database().sql`
+      insert into artefacts (
+        id, workspace_id, agent_id, request_key, upload_ordinal, upload_payload_hash,
+        expires_at, object_key, filename, media_type, size, sha256, state
+      ) values (
+        ${artefactId}, ${ids.workspace}, ${ids.agentA}, 'atomic-rollback', 0, ${"4".repeat(64)},
+        now() + interval '1 hour', ${`${ids.workspace}/stage/rollback`}, 'plan.pdf', 'application/pdf', 8, ${"d".repeat(64)}, 'READY'
+      )
+    `;
     try {
-      const response = await post({ ...baseInput, explanation }, {
+      const response = await post({ ...baseInput, explanation, artefactIds: [artefactId] }, {
         token: TOKENS.createA,
         key: "atomic-rollback",
       });
@@ -273,5 +350,7 @@ describe.sequential("POST /api/approvals/request", () => {
     `;
     expect(approvals).toHaveLength(0);
     expect(idempotency).toHaveLength(0);
+    const [staged] = await database().sql`select approval_id, state from artefacts where id = ${artefactId}`;
+    expect(staged).toMatchObject({ approval_id: null, state: "READY" });
   });
 });

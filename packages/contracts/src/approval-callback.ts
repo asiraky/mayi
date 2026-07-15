@@ -16,6 +16,7 @@ export const ApprovalRequest = z.object({
   suggestedApproverId: Id.optional(),
   expiresInSeconds: z.number().int().min(60).max(7 * 24 * 60 * 60),
   callback: ApprovalCallback,
+  artefactIds: z.array(Id).max(20).optional(),
 }).strict();
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
 
