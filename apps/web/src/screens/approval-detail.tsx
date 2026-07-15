@@ -1,5 +1,5 @@
 import { actionName, isToolCallAction, type Approval } from "@mayi/contracts";
-import type { MayIClient } from "@mayi/sdk";
+import type { MayiClient } from "@mayi/sdk";
 import { ArrowLeft, FileText } from "lucide-react";
 import { useState } from "react";
 import { StateBadge } from "~/components/state-badge";
@@ -32,7 +32,7 @@ export function ApprovalDetail({
 }: {
   item: Approval;
   email: string;
-  api: MayIClient;
+  api: MayiClient;
   onBack: () => void;
   onRefresh: () => Promise<void>;
 }) {
