@@ -1,9 +1,9 @@
 import {
   ApprovalResolvedEvent as ApprovalResolvedEventSchema,
   canonicalize,
-  type ApprovalResolvedEvent,
 } from "@mayi/contracts";
 import { compactVerify, decodeProtectedHeader, importJWK, type JWK } from "jose";
+import type { ApprovalResolvedEvent } from "./public-contracts";
 
 export const MAYI_JWKS_PATH = "/.well-known/jwks.json";
 export const MAYI_SIGNATURE_HEADER = "x-mayi-signature";

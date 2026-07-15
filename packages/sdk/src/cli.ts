@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import type { Approval } from "@mayi/contracts";
-import { MayiClient } from "./index";
+import { MayiClient, type Approval } from "./index";
 
 const [command, id] = process.argv.slice(2);
 const origin = process.env.MAYI_URL ?? "http://localhost:3000";

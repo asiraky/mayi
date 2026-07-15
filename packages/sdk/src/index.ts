@@ -2,13 +2,31 @@ import {
   Approval as ApprovalSchema,
   Artefact as ArtefactSchema,
   createId,
-  type Approval,
-  type ApprovalRequest,
-  type Artefact,
-  type CreateApproval,
-  type Decision,
-  type Session,
 } from "@mayi/contracts";
+import type {
+  Approval,
+  ApprovalRequest,
+  Artefact,
+  CreateApproval,
+  Decision,
+  Session,
+} from "./public-contracts";
+
+export type {
+  Action,
+  Approval,
+  ApprovalCallback,
+  ApprovalRequest,
+  ApprovalResolvedEvent,
+  ApprovalState,
+  Artefact,
+  CreateApproval,
+  Decision,
+  EnforcementMode,
+  Session,
+  ToolCallAction,
+  VersionedAction,
+} from "./public-contracts";
 
 export * from "./callback-state";
 export * from "./webhook-verifier";

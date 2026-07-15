@@ -1,8 +1,9 @@
 import {
   MAX_CALLBACK_STATE_LENGTH,
-  SealedCallbackStateEnvelope,
+  SealedCallbackStateEnvelope as SealedCallbackStateEnvelopeSchema,
   canonicalize,
 } from "@mayi/contracts";
+import type { SealedCallbackStateEnvelope } from "./public-contracts";
 
 const CALLBACK_STATE_VERSION = 1;
 const AES_GCM_KEY_BYTES = 32;
@@ -282,7 +283,7 @@ export async function createCallbackStateCodec(options: CallbackStateCodecOption
         && "version" in rawEnvelope
         && (rawEnvelope as { version?: unknown }).version !== CALLBACK_STATE_VERSION
       ) throw new CallbackStateError("UNSUPPORTED_VERSION");
-      const parsedEnvelope = SealedCallbackStateEnvelope.safeParse(rawEnvelope);
+      const parsedEnvelope = SealedCallbackStateEnvelopeSchema.safeParse(rawEnvelope);
       if (!parsedEnvelope.success) throw new CallbackStateError("INVALID_STATE");
       const envelope = parsedEnvelope.data;
       const key = keys.get(envelope.kid);

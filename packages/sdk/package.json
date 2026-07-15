@@ -1,12 +1,57 @@
 {
   "name": "@mayi/sdk",
   "version": "0.1.0",
+  "description": "TypeScript client and verification utilities for May I? approvals",
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "bin": { "mayi": "./src/cli.ts" },
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./callback-state": {
+      "types": "./dist/callback-state.d.ts",
+      "import": "./dist/callback-state.js"
+    },
+    "./webhook-verifier": {
+      "types": "./dist/webhook-verifier.d.ts",
+      "import": "./dist/webhook-verifier.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "mayi": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asiraky/mayi",
+    "directory": "packages/sdk"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && node ./scripts/normalize-source-maps.mjs",
+    "prepack": "pnpm build",
+    "test:package": "node ./scripts/test-package.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
-    "@mayi/contracts": "workspace:*",
     "jose": "^6.2.3"
+  },
+  "devDependencies": {
+    "@mayi/contracts": "workspace:*",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.0"
   }
 }

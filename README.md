@@ -41,7 +41,7 @@ const pending = await mayi.approvals.request({
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
 
-The `@mayi/sdk` workspace package is currently source-only and is not published to npm. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
+The `@mayi/sdk` workspace package builds a publishable npm tarball containing ESM JavaScript, TypeScript declarations, and source maps. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
 
 After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. See [the API guide](docs/API.md) for the HTTP and MCP versions of the same flow.
 
