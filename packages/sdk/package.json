@@ -5,5 +5,8 @@
   "exports": { ".": "./src/index.ts" },
   "bin": { "mayi": "./src/cli.ts" },
   "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@mayi/contracts": "workspace:*" }
+  "dependencies": {
+    "@mayi/contracts": "workspace:*",
+    "jose": "^6.2.3"
+  }
 }

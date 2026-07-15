@@ -271,6 +271,9 @@ importers:
       '@mayi/contracts':
         specifier: workspace:*
         version: link:../contracts
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
 
   packages/storage:
     dependencies:
