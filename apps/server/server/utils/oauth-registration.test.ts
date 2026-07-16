@@ -24,7 +24,7 @@ function registration(overrides: Record<string, unknown> = {}): Record<string, u
 }
 
 async function parse(input: Record<string, unknown>, resolve: PublicUrlResolver = publicDns) {
-  return parseAndValidateRegistration(JSON.stringify(input), { production: true, resolve });
+  return parseAndValidateRegistration(JSON.stringify(input), { resolve });
 }
 
 describe("OAuth dynamic client registration validation", () => {
@@ -68,12 +68,12 @@ describe("OAuth dynamic client registration validation", () => {
 
   it("enforces the raw UTF-8 body byte limit before JSON parsing", async () => {
     const raw = "é".repeat(OAUTH_REGISTRATION_LIMITS.bodyBytes / 2 + 1);
-    await expect(parseAndValidateRegistration(raw, { production: true, resolve: publicDns }))
+    await expect(parseAndValidateRegistration(raw, { resolve: publicDns }))
       .rejects.toThrow(/exceeds 32 KiB/);
   });
 
   it("rejects malformed JSON", async () => {
-    await expect(parseAndValidateRegistration("{", { production: true, resolve: publicDns }))
+    await expect(parseAndValidateRegistration("{", { resolve: publicDns }))
       .rejects.toThrow(/valid JSON/);
   });
 
@@ -82,14 +82,16 @@ describe("OAuth dynamic client registration validation", () => {
     "https://eden.example:8443/callback",
     "https://user@eden.example/callback",
     "https://eden.example/callback#fragment",
-  ])("rejects an unsafe production redirect URI: %s", (value) => {
-    expect(() => validateRedirectUri(value, true)).toThrow(/Redirect URI/);
+  ])("rejects an unsafe redirect URI: %s", (value) => {
+    expect(() => validateRedirectUri(value)).toThrow(/Redirect URI/);
   });
 
-  it("allows only loopback HTTP as the development redirect exception", () => {
-    expect(() => validateRedirectUri("http://localhost:3000/callback", false)).not.toThrow();
-    expect(() => validateRedirectUri("http://127.0.0.1:4321/callback", false)).not.toThrow();
-    expect(() => validateRedirectUri("http://example.com:3000/callback", false)).toThrow(/HTTPS/);
+  it("allows RFC 8252 loopback HTTP redirect URIs for native apps", () => {
+    expect(() => validateRedirectUri("http://localhost:3000/callback")).not.toThrow();
+    expect(() => validateRedirectUri("http://127.0.0.1:4321/callback")).not.toThrow();
+    expect(() => validateRedirectUri("http://[::1]:8976/callback")).not.toThrow();
+    expect(() => validateRedirectUri("http://example.com:3000/callback")).toThrow(/HTTPS/);
+    expect(() => validateRedirectUri("http://192.168.1.10:3000/callback")).toThrow(/HTTPS/);
   });
 
   it("enforces ten successful registrations per source IP per rolling hour", () => {
