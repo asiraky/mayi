@@ -44,12 +44,12 @@ export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Sessi
           {signup && (
             <div className="grid gap-2">
               <Label htmlFor="name">Name</Label>
-              <Input id="name" name="name" autoComplete="name" required />
+              <Input id="name" name="name" autoComplete="name" required className="h-10" />
             </div>
           )}
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" autoComplete="email" required />
+            <Input id="email" name="email" type="email" autoComplete="email" required className="h-10" />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="password">Password</Label>
@@ -60,6 +60,7 @@ export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Sessi
               minLength={signup ? 8 : 1}
               autoComplete={signup ? "new-password" : "current-password"}
               required
+              className="h-10"
             />
             {signup && (
               <p className="text-[12px] text-muted-foreground">
@@ -76,7 +77,7 @@ export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Sessi
             </p>
           )}
 
-          <Button type="submit" disabled={busy} className="mt-2 w-full">
+          <Button type="submit" disabled={busy} className="mt-2 h-11 w-full text-[15px]">
             {busy ? "One moment…" : signup ? "Create workspace" : "Sign in"}
           </Button>
         </form>
@@ -87,7 +88,7 @@ export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Sessi
             setSignup(!signup);
             setError("");
           }}
-          className="mt-6 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          className="mt-4 py-2 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
           {signup ? "Already have an account? Sign in" : "Create an account"}
         </button>

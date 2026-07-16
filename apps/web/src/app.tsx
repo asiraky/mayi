@@ -190,7 +190,9 @@ export function App() {
         </p>
 
         <Tabs value={tab} onValueChange={(value) => void openTab(value as Tab)} className="mt-5">
-          <TabsList>
+          {/* Full width on phones so four tabs share the row evenly; natural width
+              once there is room. */}
+          <TabsList className="w-full sm:w-fit">
             {TABS.map((name) => (
               <TabsTrigger key={name} value={name} className="capitalize">
                 {name}
@@ -232,8 +234,8 @@ export function App() {
           {tab === "agents" && (
             <>
               <h1 className="text-[24px] font-semibold tracking-[-0.01em]">Connected agents</h1>
-              <form onSubmit={createAgent} className="mt-6 flex gap-2">
-                <Input name="name" placeholder="Agent name" required className="flex-1" />
+              <form onSubmit={createAgent} className="mt-6 flex flex-col gap-2 sm:flex-row">
+                <Input name="name" placeholder="Agent name" required className="sm:flex-1" />
                 <Button type="submit">New headless agent</Button>
               </form>
 
