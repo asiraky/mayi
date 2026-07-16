@@ -114,7 +114,7 @@ const faqs = [
 
     <h1
       data-reveal="2"
-      class="mt-9 max-w-[16ch] text-[clamp(2.8rem,7.6vw,6rem)] leading-[0.98] font-semibold"
+      class="hero-gradient-text mt-9 max-w-[16ch] text-[clamp(2.5rem,7.6vw,6rem)] leading-[0.98] font-semibold"
     >
       An agent is waiting to hear back from you.
     </h1>
@@ -143,8 +143,8 @@ const faqs = [
 
   <!-- THE HELD REQUEST + what it looks like on her phone -->
   <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]">
-    <div class="grid gap-12 border-t border-border pt-8 lg:grid-cols-[1fr_260px] lg:gap-16">
-      <div>
+    <div class="grid grid-cols-1 gap-12 border-t border-border pt-8 lg:grid-cols-[1fr_260px] lg:gap-16">
+      <div class="min-w-0">
         <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">What she is looking at</p>
 
         <dl class="mt-7 grid gap-y-3 font-mono text-[13px] sm:grid-cols-[150px_1fr]">
@@ -297,10 +297,10 @@ const faqs = [
       One line to ask. One line to trust.
     </h2>
 
-    <div class="mt-12 grid gap-6 lg:grid-cols-2">
-      <div class="rounded-xl border border-border bg-muted p-6">
+    <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
         <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The agent side · MCP</p>
-        <pre class="mt-5 overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`const receipt = await mayi.ask({
+        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`const receipt = await mayi.ask({
   action: "payments.refund",
   args: { amount: 4800000, to: "acct_8841" },
   because: "Duplicate capture on #99812.",
@@ -312,9 +312,9 @@ const faqs = [
 // polling is reconciliation/fallback only.`}</code></pre>
       </div>
 
-      <div class="rounded-xl border border-border bg-muted p-6">
+      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
         <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The executor side · verify</p>
-        <pre class="mt-5 overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`app.post("/refund", async (req, res) => {
+        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`app.post("/refund", async (req, res) => {
   const ok = await mayi.verify(req.body.receipt, {
     action: "payments.refund",
     args: req.body.args,
@@ -340,8 +340,8 @@ const faqs = [
       Proof of what she saw, not proof that she clicked.
     </h2>
 
-    <div class="mt-12 grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16">
-      <div>
+    <div class="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16">
+      <div class="min-w-0">
         <ul class="divide-y divide-border border-y border-border">
           {
             bound.map((b) => (
@@ -362,7 +362,7 @@ const faqs = [
       </div>
 
       <!-- Tamper demo -->
-      <div class="rounded-xl border border-border bg-muted p-6">
+      <div class="min-w-0 rounded-xl border border-border bg-muted p-6">
         <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Try to move a decimal</p>
 
         <dl class="mt-6 grid grid-cols-[74px_1fr] gap-y-2.5 font-mono text-[12px]">
