@@ -77,6 +77,7 @@ Relevant pushes to `main` deploy only after the `verify` job passes. Configure G
 - `RECEIPT_PUBLIC_JWK`
 - `RECEIPT_PREVIOUS_PUBLIC_JWKS` (set it to `[]` outside a rotation window)
 - `CRON_SECRET`
+- `POSTMARK_SERVER_TOKEN` (optional; omitting it disables approval emails and the sender is `FROM_EMAIL` in `wrangler.toml`)
 
 Add `CLOUDFLARE_HYPERDRIVE_ID` as an environment variable, not a secret. The workflow synchronizes the Hyperdrive origin with query caching disabled, applies migrations, substitutes the binding ID, and deploys the Worker and its secrets. A failure before the deploy step leaves the previous Worker running. Secrets previously added directly to the Worker, such as optional provider credentials, are preserved when the workflow deploys its secrets file.
 

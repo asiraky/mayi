@@ -14,6 +14,7 @@
     "@mayi/contracts": "workspace:*",
     "@mayi/db": "workspace:*",
     "@mayi/domain": "workspace:*",
+    "@mayi/email": "workspace:*",
     "@mayi/receipts": "workspace:*",
     "@mayi/storage": "workspace:*",
     "@mayi/web": "workspace:*",

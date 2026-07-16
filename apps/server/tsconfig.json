@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "compilerOptions": { "noEmit": true, "types": ["node"], "jsx": "react-jsx" },
   "include": ["server", "nitro.config.ts", ".nitro/types/**/*.d.ts"]
 }

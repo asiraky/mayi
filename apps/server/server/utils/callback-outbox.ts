@@ -434,7 +434,8 @@ export async function markOutboxJobSucceeded(
       const skippedState = job.attempts > 1 ? "DELIVERY_UNCONFIRMED" : "SKIPPED";
       const deliveries = await tx`
         update forwarding_deliveries set state = ${result.skipped ? skippedState : "DELIVERED"},
-          response_code = ${result.responseCode ?? null}, delivered_at = ${result.skipped ? null : new Date()}
+          response_code = ${result.responseCode ?? null},
+          delivered_at = ${result.skipped ? null : new Date().toISOString()}
         where id = ${result.deliveryId} and workspace_id = ${job.workspace_id}
         returning id
       `;

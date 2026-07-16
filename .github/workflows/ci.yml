@@ -143,6 +143,7 @@ jobs:
           RECEIPT_PUBLIC_JWK: ${{ secrets.RECEIPT_PUBLIC_JWK }}
           RECEIPT_PREVIOUS_PUBLIC_JWKS: ${{ secrets.RECEIPT_PREVIOUS_PUBLIC_JWKS }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          POSTMARK_SERVER_TOKEN: ${{ secrets.POSTMARK_SERVER_TOKEN }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN"
           test -n "$CLOUDFLARE_ACCOUNT_ID"
@@ -156,6 +157,8 @@ jobs:
             --arg receipt_public_jwk "$RECEIPT_PUBLIC_JWK" \
             --arg receipt_previous_public_jwks "${RECEIPT_PREVIOUS_PUBLIC_JWKS:-[]}" \
             --arg cron_secret "$CRON_SECRET" \
-            '{RECEIPT_PRIVATE_JWK: $receipt_private_jwk, RECEIPT_PUBLIC_JWK: $receipt_public_jwk, RECEIPT_PREVIOUS_PUBLIC_JWKS: $receipt_previous_public_jwks, CRON_SECRET: $cron_secret}' \
+            --arg postmark_server_token "${POSTMARK_SERVER_TOKEN:-}" \
+            '{RECEIPT_PRIVATE_JWK: $receipt_private_jwk, RECEIPT_PUBLIC_JWK: $receipt_public_jwk, RECEIPT_PREVIOUS_PUBLIC_JWKS: $receipt_previous_public_jwks, CRON_SECRET: $cron_secret}
+              + (if $postmark_server_token == "" then {} else {POSTMARK_SERVER_TOKEN: $postmark_server_token} end)' \
             > "$secrets_file"
           pnpm exec wrangler deploy --config wrangler.toml --secrets-file "$secrets_file"

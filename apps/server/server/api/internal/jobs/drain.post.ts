@@ -15,6 +15,8 @@ import {
   type NonCallbackJobResult,
   type OutboxJob,
 } from "../../../utils/callback-outbox";
+import { renderApprovalRequestedEmail } from "@mayi/email";
+import { emailConfigured, sendEmail } from "../../../utils/email-client";
 import { requireCronSecret } from "../../../utils/internal-auth";
 import { cleanupExpiredStagedArtefacts } from "../../../utils/staged-artefact-cleanup";
 
@@ -121,19 +123,51 @@ async function webhook(job: Job): Promise<NonCallbackJobResult> {
   return { deliveryId, responseCode: response.status };
 }
 
+/** "in 14 minutes" — the same phrasing the app uses, computed at send time. */
+export function relativeExpiry(expiresAt: Date, now = Date.now()): string {
+  const delta = (expiresAt.getTime() - now) / 1000;
+  const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const units: Array<[limit: number, seconds: number, unit: Intl.RelativeTimeFormatUnit]> = [
+    [60, 1, "second"], [3600, 60, "minute"], [86_400, 3600, "hour"], [Infinity, 86_400, "day"],
+  ];
+  for (const [limit, seconds, unit] of units) {
+    if (Math.abs(delta) < limit) return relative.format(Math.round(delta / seconds), unit);
+  }
+  return expiresAt.toISOString();
+}
+
 async function email(job: Job): Promise<NonCallbackJobResult> {
   const { approvalId, destinationId, deliveryId } = job.payload;
-  if (!approvalId || !destinationId || !deliveryId || !process.env.EMAIL_API_URL || !process.env.EMAIL_API_KEY) throw new Error("Email delivery is not configured");
+  if (!approvalId || !destinationId || !deliveryId) throw new Error("Incomplete email job");
+  if (!emailConfigured()) throw new Error("Email delivery is not configured");
   const rows = await database().sql`
-    select d.endpoint, a.action, a.expires_at from forwarding_destinations d join approvals a on a.id = ${approvalId} and a.workspace_id = d.workspace_id
+    select d.endpoint, a.action, a.explanation, a.high_risk, a.expires_at,
+      ag.name as agent_name, w.name as workspace_name
+    from forwarding_destinations d
+    join approvals a on a.id = ${approvalId} and a.workspace_id = d.workspace_id
+    join agents ag on ag.id = a.agent_id
+    join workspaces w on w.id = a.workspace_id
     where d.id = ${destinationId} and d.workspace_id = ${job.workspace_id} and d.type = 'EMAIL' and d.active and d.verified_at is not null
   `;
   const row = rows[0]; if (!row) throw new Error("Email destination no longer exists"); const action = Action.parse(row.action);
-  const response = await deliverProviderRequest(process.env.EMAIL_API_URL, { method: "POST", headers: { authorization: `Bearer ${process.env.EMAIL_API_KEY}`, "content-type": "application/json", "idempotency-key": deliveryId }, body: JSON.stringify({
-    to: row.endpoint, subject: "May I? approval requested", text: `An agent requested approval for ${actionName(action)}. Review it securely: ${process.env.PUBLIC_ORIGIN}/?approval=${approvalId}\nExpires: ${new Date(row.expires_at as Date).toISOString()}`,
-  }) });
-  if (!response.ok) throw new Error(`Email provider returned ${response.status}`);
-  return { deliveryId, responseCode: response.status };
+  const expiresAt = new Date(row.expires_at as Date);
+  const kind = actionName(action);
+  // The web app is co-served by this server in production; WEB_ORIGIN overrides for
+  // dev where Vite hosts it on its own port.
+  const webOrigin = process.env.WEB_ORIGIN ?? process.env.PUBLIC_ORIGIN ?? "http://localhost:3000";
+  const html = await renderApprovalRequestedEmail({
+    actionKind: kind,
+    explanation: String(row.explanation),
+    agentName: String(row.agent_name),
+    workspaceName: String(row.workspace_name),
+    highRisk: Boolean(row.high_risk),
+    expiresAtIso: expiresAt.toISOString(),
+    expiresInText: relativeExpiry(expiresAt),
+    reviewUrl: `${webOrigin}/?approval=${approvalId}`,
+    approvalId,
+  });
+  await sendEmail({ to: String(row.endpoint), subject: `May I ${kind}? — approval requested`, html });
+  return { deliveryId, responseCode: 200 };
 }
 
 export default defineEventHandler(async (event) => {
