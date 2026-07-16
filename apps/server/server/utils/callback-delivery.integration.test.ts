@@ -1,5 +1,5 @@
 import { canonicalize, createId } from "@mayi/contracts";
-import { createWebhookVerifier } from "@mayi/sdk/webhook-verifier";
+import { createWebhookVerifier } from "@mayiapp/sdk/webhook-verifier";
 import { generateKeyPair, exportJWK } from "jose";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";

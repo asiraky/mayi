@@ -10,7 +10,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   splitting: false,
-  external: ["@mayi/sdk", "eve"],
+  external: ["@mayiapp/sdk", "eve"],
   esbuildOptions(options) {
     options.sourcesContent = false;
   },

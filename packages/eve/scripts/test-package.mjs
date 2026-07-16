@@ -40,17 +40,17 @@ try {
     mkdir(fixtureDirectory, { recursive: true }),
   ]);
 
-  console.log("\nPacking @mayi/sdk and @mayi/eve with pnpm pack...");
-  run("corepack", ["pnpm", "--filter", "@mayi/sdk", "pack", "--pack-destination", packDirectory], {
+  console.log("\nPacking @mayiapp/sdk and @mayiapp/eve with pnpm pack...");
+  run("corepack", ["pnpm", "--filter", "@mayiapp/sdk", "pack", "--pack-destination", packDirectory], {
     cwd: repositoryRoot,
   });
   run("corepack", ["pnpm", "pack", "--pack-destination", packDirectory]);
-  const sdkArchive = await onlyArchive("mayi-sdk-");
-  const eveArchive = await onlyArchive("mayi-eve-");
+  const sdkArchive = await onlyArchive("mayiapp-sdk-");
+  const eveArchive = await onlyArchive("mayiapp-eve-");
 
   const tarListing = run("tar", ["-tzf", eveArchive], { capture: true })
     .trim().split("\n").filter(Boolean);
-  console.log("\n@mayi/eve tarball contents:");
+  console.log("\n@mayiapp/eve tarball contents:");
   console.log(tarListing.join("\n"));
   assert.deepEqual(tarListing.sort(), [
     "package/LICENSE",
@@ -69,7 +69,7 @@ try {
   await mkdir(inspectDirectory);
   run("tar", ["-xzf", eveArchive, "-C", inspectDirectory]);
   const packedPackage = JSON.parse(await readFile(join(inspectDirectory, "package/package.json"), "utf8"));
-  assert.deepEqual(packedPackage.dependencies, { "@mayi/sdk": "^0.1.0" });
+  assert.deepEqual(packedPackage.dependencies, { "@mayiapp/sdk": "^0.1.0" });
   assert.deepEqual(packedPackage.peerDependencies, { eve: "0.24.2" });
   assert.equal(packedPackage.repository.url, "https://github.com/asiraky/mayi");
   assert.equal(packedPackage.publishConfig.access, "public");
@@ -110,8 +110,8 @@ try {
   ], { cwd: fixtureDirectory });
 
   const runtimeFixture = `
-    import { MAYI_CALLBACK_PATH, mayiChannel, resolvePublicOrigin } from "@mayi/eve";
-    import manifest from "@mayi/eve/package.json" with { type: "json" };
+    import { MAYI_CALLBACK_PATH, mayiChannel, resolvePublicOrigin } from "@mayiapp/eve";
+    import manifest from "@mayiapp/eve/package.json" with { type: "json" };
     const channel = mayiChannel({ getAccessToken: async () => "fabricated-token" });
     if (channel.routes[0]?.path !== "/eve/v1/mayi/approval-resolved") throw new Error("route import failed");
     if (MAYI_CALLBACK_PATH !== channel.routes[0].path) throw new Error("callback constant mismatch");
@@ -131,7 +131,7 @@ try {
       type MayiChannelConfig,
       type MayiReceiveTarget,
       type MayiWebhookEventStore,
-    } from "@mayi/eve";
+    } from "@mayiapp/eve";
     import type { Channel } from "eve/channels";
 
     const processed = new Set();
@@ -161,8 +161,8 @@ try {
   run(process.execPath, [join(repositoryRoot, "node_modules/typescript/bin/tsc"), "-p", "tsconfig.json"], {
     cwd: fixtureDirectory,
   });
-  console.log("TypeScript resolution passed for @mayi/eve and its Eve peer");
-  console.log("\n@mayi/eve package artifact verification passed.");
+  console.log("TypeScript resolution passed for @mayiapp/eve and its Eve peer");
+  console.log("\n@mayiapp/eve package artifact verification passed.");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

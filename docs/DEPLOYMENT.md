@@ -36,7 +36,7 @@ and Vercel documents its
 Back up the database and object store, then apply the committed Drizzle migrations before new application code serves production traffic. After deployment, verify `/api/health` and `/api/ready`. Receipt keys and `CRON_SECRET` must persist across deployments; rotating them is a separate operation described in `docs/OPERATIONS.md`.
 
 The npm Trusted Publishing, protected environment, version-PR, prerelease, and
-immutable rollback procedures for `@mayi/sdk` and `@mayi/eve` are documented in
+immutable rollback procedures for `@mayiapp/sdk` and `@mayiapp/eve` are documented in
 [`docs/RELEASING.md`](RELEASING.md).
 
 ## Cloudflare

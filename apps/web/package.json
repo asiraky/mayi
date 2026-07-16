@@ -7,14 +7,14 @@
     "sync:theme": "mkdir -p public/fonts && cp ../../packages/theme/theme.js public/theme.js && cp ../../packages/theme/fonts/*.woff2 public/fonts/",
     "predev": "pnpm sync:theme",
     "dev": "vite",
-    "prebuild": "pnpm --filter @mayi/sdk build && pnpm sync:theme",
+    "prebuild": "pnpm --filter @mayiapp/sdk build && pnpm sync:theme",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.2.5",
     "@mayi/contracts": "workspace:*",
-    "@mayi/sdk": "workspace:*",
+    "@mayiapp/sdk": "workspace:*",
     "@mayi/theme": "workspace:*",
     "@vitejs/plugin-react": "latest",
     "class-variance-authority": "^0.7.1",

@@ -1,18 +1,18 @@
-# `@mayi/eve`
+# `@mayiapp/eve`
 
 Durable Mayi approval channel for [Eve](https://github.com/vercel/eve) agents.
 
 ## Quick start
 
 ```sh
-npm install @mayi/eve eve
+npm install @mayiapp/eve eve
 ```
 
 Create the Mayi channel in the root agent:
 
 ```ts
 // agent/channels/mayi.ts
-import { mayiChannel } from "@mayi/eve";
+import { mayiChannel } from "@mayiapp/eve";
 import { credentials } from "../credentials.server";
 
 export default mayiChannel({
@@ -22,7 +22,7 @@ export default mayiChannel({
 
 The host owns Mayi's Authorization Code + PKCE flow, securely stores and
 refreshes the OAuth grant, and returns a current access token from
-`getAccessToken`. The adapter and `@mayi/sdk` do not store tokens. Do not put an
+`getAccessToken`. The adapter and `@mayiapp/sdk` do not store tokens. Do not put an
 access token, refresh token, static API key, or webhook endpoint ID in agent code.
 Eden's generated integration supplies this credential binding; see the complete
 [Eden agent template](https://github.com/asiraky/mayi/tree/main/packages/eve/examples/eden-agent).

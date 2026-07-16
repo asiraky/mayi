@@ -1,4 +1,4 @@
-import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, createCallbackStateCodec, type MayiFetch } from "@mayi/sdk";
+import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, createCallbackStateCodec, type MayiFetch } from "@mayiapp/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   createInputRequestedHandler,

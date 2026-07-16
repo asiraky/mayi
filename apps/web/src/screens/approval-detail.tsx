@@ -1,5 +1,5 @@
 import { actionName, isToolCallAction, type Approval } from "@mayi/contracts";
-import { MayiHttpError, type MayiClient } from "@mayi/sdk";
+import { MayiHttpError, type MayiClient } from "@mayiapp/sdk";
 import { ArrowLeft, FileText } from "lucide-react";
 import { useState } from "react";
 import { StateBadge } from "~/components/state-badge";

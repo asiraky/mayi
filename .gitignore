@@ -20,6 +20,7 @@ data/
 dogfood-output/auth-state.json
 BUILD_PLAN.md
 .claude/worktrees/
+.worktrees/
 
 # Copied from packages/theme by each app's sync:theme script. The originals are the
 # committed ones; these are build inputs, and a second copy of a licensed typeface in

@@ -1,4 +1,4 @@
-import { mayiChannel } from "@mayi/eve";
+import { mayiChannel } from "@mayiapp/eve";
 import { credentials } from "../credentials.server";
 
 export default mayiChannel({

@@ -1,5 +1,5 @@
 import { CALLBACK_ACCEPTANCE_WINDOW_SECONDS, canonicalize, createId } from "@mayi/contracts";
-import { createCallbackStateCodec } from "@mayi/sdk";
+import { createCallbackStateCodec } from "@mayiapp/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mayiChannel } from "../../../../packages/eve/src/channel";
 import jwksHandler from "../routes/.well-known/jwks.json.get";

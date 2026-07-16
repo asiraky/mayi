@@ -33,7 +33,7 @@ try {
     mkdir(fixtureDirectory, { recursive: true }),
   ]);
 
-  console.log("\nPacking @mayi/sdk with pnpm pack...");
+  console.log("\nPacking @mayiapp/sdk with pnpm pack...");
   run("pnpm", ["pack", "--pack-destination", packDirectory]);
   const archives = (await readdir(packDirectory)).filter((name) => name.endsWith(".tgz"));
   assert.equal(archives.length, 1, "pnpm pack must create exactly one tarball");
@@ -109,10 +109,10 @@ try {
   run("npm", ["install", "--ignore-scripts", "--no-package-lock", "--no-audit", "--no-fund", archive], { cwd: fixtureDirectory });
 
   const runtimeFixture = `
-    import * as sdk from "@mayi/sdk";
-    import * as callbackState from "@mayi/sdk/callback-state";
-    import * as webhookVerifier from "@mayi/sdk/webhook-verifier";
-    import manifest from "@mayi/sdk/package.json" with { type: "json" };
+    import * as sdk from "@mayiapp/sdk";
+    import * as callbackState from "@mayiapp/sdk/callback-state";
+    import * as webhookVerifier from "@mayiapp/sdk/webhook-verifier";
+    import manifest from "@mayiapp/sdk/package.json" with { type: "json" };
     if (typeof sdk.MayiClient !== "function") throw new Error("main entry import failed");
     if (typeof callbackState.createCallbackStateCodec !== "function") throw new Error("callback-state import failed");
     if (typeof webhookVerifier.createWebhookVerifier !== "function") throw new Error("webhook-verifier import failed");
@@ -127,9 +127,9 @@ try {
   console.log(`Resolved jose ${installedJose.version} from the clean install`);
 
   const typeFixture = `
-    import { MayiClient, type PendingApproval } from "@mayi/sdk";
-    import { createCallbackStateCodec, type CallbackStateCodec } from "@mayi/sdk/callback-state";
-    import { createWebhookVerifier, type WebhookVerifier } from "@mayi/sdk/webhook-verifier";
+    import { MayiClient, type PendingApproval } from "@mayiapp/sdk";
+    import { createCallbackStateCodec, type CallbackStateCodec } from "@mayiapp/sdk/callback-state";
+    import { createWebhookVerifier, type WebhookVerifier } from "@mayiapp/sdk/webhook-verifier";
 
     const client = new MayiClient({ origin: "https://mayi.example.com" });
     const pending: Promise<PendingApproval> = client.approvals.request({
