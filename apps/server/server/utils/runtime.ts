@@ -8,6 +8,12 @@ const state = globalThis as typeof globalThis & {
 };
 
 export function database(): Database {
+  // Cloudflare Workers cannot share database sockets between requests, so the
+  // worker entry point provides a per-request client through this store; every
+  // other runtime keeps the process-wide pool.
+  const perRequest = (globalThis as { __mayiRequestDatabase?: { getStore(): Database | undefined } })
+    .__mayiRequestDatabase?.getStore();
+  if (perRequest) return perRequest;
   return state.__mayiDb ??= createDatabase(process.env.DATABASE_URL);
 }
 
