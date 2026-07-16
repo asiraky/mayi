@@ -3,7 +3,9 @@
 Agents authenticate with OAuth PKCE at the advertised well-known endpoints or an administrator-created bearer token. The remote MCP endpoint is `/api/mcp`; the compatibility tools are `create_approval`, `get_approval`, and `cancel_approval`.
 
 Dynamic OAuth registration requires both exact `redirect_uris` and exact
-`approval_callback_uris`. Approval callbacks are immutable client metadata and
+`approval_callback_uris`. Redirect URIs must be HTTPS on the default port, or
+loopback HTTP (`localhost`, `127.0.0.1`, `[::1]`, any port) for RFC 8252
+native apps. Approval callbacks are immutable client metadata and
 are authorized against the client ID bound to the agent's access token. If an
 agent's stable callback origin changes, register a new OAuth client and reconnect
 it; then revoke the old connection through the agent disconnect flow. Existing
@@ -58,6 +60,13 @@ compact EdDSA JWS against the raw canonical body with `@mayiapp/sdk`, and return
 echoes `state` unchanged and never parses or logs it.
 
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.
+
+Every account starts with two default notification channels: signup creates a
+born-verified EMAIL destination for the account address with an active
+catch-all rule (signing up asserts ownership of that address), and mobile push
+is fanned out to registered devices unconditionally, with no forwarding row
+required. The code-verification flow in `/api/forwarding/email/start` +
+`/confirm` applies to any additional address a workspace owner adds.
 
 Per-request terminal callbacks are separate from forwarding destinations and
 rules. Forwarding continues to emit only `mayi.approval_pending`.

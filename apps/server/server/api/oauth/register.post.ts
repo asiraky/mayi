@@ -43,7 +43,7 @@ function bodyBytes(raw: string | Uint8Array): number {
   return typeof raw === "string" ? new TextEncoder().encode(raw).byteLength : raw.byteLength;
 }
 
-export function validateRedirectUri(value: string, production = process.env.NODE_ENV === "production"): void {
+export function validateRedirectUri(value: string): void {
   let url: URL;
   try {
     url = new URL(value);
@@ -56,22 +56,23 @@ export function validateRedirectUri(value: string, production = process.env.NODE
   }
 
   const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const developmentLoopback = !production && url.protocol === "http:"
-    && ["localhost", "127.0.0.1", "::1"].includes(hostname);
+  // RFC 8252 §7.3: native apps receive the authorization code on the loopback
+  // interface, so plain HTTP to loopback is accepted on any port — the redirect
+  // never leaves the user's machine, and a local process cannot present a
+  // browser-trusted TLS certificate anyway.
+  const loopback = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(hostname);
   const defaultHttps = url.protocol === "https:" && !url.port;
-  if (!defaultHttps && !developmentLoopback) {
+  if (!defaultHttps && !loopback) {
     throw createError({
       statusCode: 422,
-      statusMessage: production
-        ? "Redirect URIs must use HTTPS on the default port"
-        : "Redirect URIs must use HTTPS on the default port (loopback HTTP is allowed in development)",
+      statusMessage: "Redirect URIs must use HTTPS on the default port or loopback HTTP",
     });
   }
 }
 
 export async function parseAndValidateRegistration(
   raw: string | Uint8Array | null | undefined,
-  options: ValidatePublicHttpsUrlOptions & { production?: boolean } = {},
+  options: ValidatePublicHttpsUrlOptions = {},
 ): Promise<OAuthRegistrationInput> {
   if (raw == null) throw createError({ statusCode: 400, statusMessage: "Registration body is required" });
   if (bodyBytes(raw) > OAUTH_REGISTRATION_LIMITS.bodyBytes) {
@@ -90,7 +91,7 @@ export async function parseAndValidateRegistration(
     throw createError({ statusCode: 422, statusMessage: "Invalid OAuth client registration", data: result.error.flatten() });
   }
 
-  for (const value of result.data.redirect_uris) validateRedirectUri(value, options.production);
+  for (const value of result.data.redirect_uris) validateRedirectUri(value);
   for (const value of result.data.approval_callback_uris) {
     try {
       await validatePublicHttpsUrl(value, options);
