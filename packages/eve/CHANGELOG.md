@@ -1,5 +1,11 @@
 # @mayiapp/eve
 
+## 0.2.1
+
+### Patch Changes
+
+- 655214e: Republish after a release-pipeline failure: the publish job now builds the workspace before packing, so the package's declaration build can resolve `@mayiapp/sdk` types. No runtime changes.
+
 ## 0.2.0
 
 ### Minor Changes

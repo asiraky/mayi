@@ -1,6 +1,6 @@
 {
   "name": "@mayiapp/eve",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Durable Mayi approval channel for Eve agents",
   "type": "module",
   "types": "./dist/index.d.ts",
