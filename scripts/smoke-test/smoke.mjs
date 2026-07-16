@@ -11,12 +11,16 @@
 // account and drives the same server endpoints (consent form post, decision
 // endpoint) directly, so it needs no browser and no mailbox.
 
+/* global console, fetch */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { URL } from "node:url";
+import process from "node:process";
 
 const SCOPES = "approval:create approval:read approval:cancel";
 const STATE_DIR = join(homedir(), ".mayi");
@@ -294,7 +298,7 @@ async function pollUntilDecided(accessToken, id, timeoutMs) {
       info(`still PENDING, waiting… (${Math.round((deadline - Date.now()) / 60_000)} min left)`);
       lastNotice = Date.now();
     }
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    await delay(5_000);
   }
 }
 
