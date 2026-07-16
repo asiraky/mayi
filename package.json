@@ -30,6 +30,7 @@
     "dev:web": "pnpm --filter @mayiapp/sdk build && pnpm --filter @mayi/web dev",
     "dev:mobile": "pnpm --filter @mayi/mobile start",
     "typecheck": "pnpm --filter @mayiapp/sdk build && pnpm -r --if-present typecheck",
+    "smoke-test": "node ./scripts/smoke-test/smoke.mjs",
     "test": "vitest run && pnpm --filter @mayiapp/sdk test:package && pnpm --filter @mayiapp/eve test:package",
     "test:watch": "vitest",
     "db:generate": "dotenv -e .env -- pnpm --filter @mayi/db generate",
