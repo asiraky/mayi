@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createId } from "@mayi/contracts";
-import { decisionTransition, freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "./index";
+import { decisionTransition, freezeDigests, isHighRisk, validateActionForEnforcement, validateInputAnswer, validateSuggestedApprover } from "./index";
 
 describe("approval state", () => {
   it("uses authoritative time to expire instead of approving", () => {
@@ -30,6 +30,50 @@ describe("executor-owned action schemas", () => {
   });
   it("uses the tool name when classifying risk", () => {
     expect(isHighRisk({ kind: "tool-call", toolName: "admin.user.delete", callId: "call-1", input: {} })).toBe(true);
+  });
+});
+
+describe("input answers", () => {
+  const options = [
+    { id: "proceed", label: "Proceed" },
+    { id: "abort", label: "Abort" },
+  ];
+
+  it("requires text and forbids optionId on text inputs", () => {
+    expect(() => validateInputAnswer({ type: "text", options: null, allowFreeform: false }, { text: "Ship it" })).not.toThrow();
+    expect(() => validateInputAnswer({ type: "text", options: null, allowFreeform: false }, { optionId: "proceed" })).toThrow(/no optionId/);
+    expect(() => validateInputAnswer({ type: "text", options: null, allowFreeform: false }, {})).toThrow(/optionId or text/);
+  });
+
+  it("requires an offered optionId on selects", () => {
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: false }, { optionId: "proceed" })).not.toThrow();
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: false }, { optionId: "other" })).toThrow(/not one of the offered options/);
+  });
+
+  it("allows freeform text on selects only when enabled", () => {
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: true }, { text: "Something else" })).not.toThrow();
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: true }, { optionId: "proceed", text: "With a note" })).not.toThrow();
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: false }, { text: "Something else" })).toThrow(/does not allow freeform/);
+  });
+
+  it("still validates an accompanying optionId on freeform selects", () => {
+    expect(() => validateInputAnswer({ type: "select", options, allowFreeform: true }, { optionId: "other", text: "note" })).toThrow(/not one of the offered options/);
+  });
+
+  it("keeps confirmations closed to an offered optionId without text", () => {
+    expect(() => validateInputAnswer({ type: "confirmation", options, allowFreeform: false }, { optionId: "abort" })).not.toThrow();
+    expect(() => validateInputAnswer({ type: "confirmation", options, allowFreeform: false }, { optionId: "proceed", text: "sure" })).toThrow(/no text/);
+    expect(() => validateInputAnswer({ type: "confirmation", options, allowFreeform: false }, { text: "yes" })).toThrow(/no text/);
+    expect(() => validateInputAnswer({ type: "confirmation", options, allowFreeform: false }, { optionId: "other" })).toThrow(/not one of the offered options/);
+  });
+
+  it("reports invalid answers as unprocessable", () => {
+    try {
+      validateInputAnswer({ type: "select", options, allowFreeform: false }, { optionId: "other" });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toMatchObject({ code: "invalid_answer", status: 422 });
+    }
   });
 });
 

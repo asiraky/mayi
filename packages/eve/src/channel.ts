@@ -13,6 +13,7 @@ import {
   type ArtefactBody,
   type ArtefactMediaType,
   type GetAccessToken,
+  type InputRequest,
   type MayiFetch,
   type WebhookVerifier,
   type WebhookVerifierFetch,
@@ -140,7 +141,12 @@ export interface EveInputRequest {
   };
   readonly allowFreeform?: boolean;
   readonly display?: "confirmation" | "select" | "text";
-  readonly options?: readonly { readonly id: string }[];
+  readonly options?: readonly {
+    readonly id: string;
+    readonly label?: string;
+    readonly description?: string;
+    readonly style?: "danger" | "default" | "primary";
+  }[];
   readonly prompt: string;
   readonly requestId: string;
 }
@@ -185,18 +191,6 @@ interface MayiChannelRuntime {
   readonly now: () => number;
   readonly publicOriginOverride?: string;
   readonly verifier: () => WebhookVerifier;
-}
-
-export class UnsupportedMayiInputError extends Error {
-  readonly requestId: string;
-
-  constructor(requestId: string, display = "unspecified") {
-    super(
-      `@mayiapp/eve supports only tool approval confirmations; Eve input request "${requestId}" uses unsupported display "${display}"`,
-    );
-    this.name = "UnsupportedMayiInputError";
-    this.requestId = requestId;
-  }
 }
 
 function parsePreviousKeys(value: string | undefined): CallbackStateKey[] {
@@ -329,10 +323,38 @@ export function createRuntime(
   };
 }
 
-function isApprovalRequest(request: EveInputRequest): boolean {
+function isApprovalShapedRequest(request: EveInputRequest): boolean {
   if (request.display !== "confirmation" || request.allowFreeform === true) return false;
   const optionIds = request.options?.map((option) => option.id) ?? [];
   return optionIds.length === 2 && optionIds.includes("approve") && optionIds.includes("deny");
+}
+
+function toGenericInputRequest(
+  request: EveInputRequest,
+): Pick<InputRequest, "type" | "prompt" | "options" | "allowFreeform"> {
+  if (request.display === "text") return { type: "text", prompt: request.prompt };
+  const options = (request.options ?? []).map((option) => ({
+    id: option.id,
+    // Eve does not require option labels; Mayi does, so fall back to the id.
+    label: option.label ?? option.id,
+    ...(option.description === undefined ? {} : { description: option.description }),
+    ...(option.style === undefined ? {} : { style: option.style }),
+  }));
+  // A question with no options is a freeform ask; Mayi's select requires at least one.
+  if (options.length === 0) return { type: "text", prompt: request.prompt };
+  // A missing display keeps its historical confirmation-candidate treatment.
+  const display = request.display ?? "confirmation";
+  // Mayi confirmations forbid allowFreeform, so a freeform confirmation must
+  // become a select to keep the typed answer path alive for the human.
+  if (display === "confirmation" && options.length === 2 && request.allowFreeform !== true) {
+    return { type: "confirmation", prompt: request.prompt, options };
+  }
+  return {
+    type: "select",
+    prompt: request.prompt,
+    options,
+    ...(request.allowFreeform === undefined ? {} : { allowFreeform: request.allowFreeform }),
+  };
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -353,9 +375,6 @@ async function submitOneRequest(
   context: MayiInputContext,
   runtime: MayiChannelRuntime,
 ): Promise<void> {
-  if (!isApprovalRequest(request)) {
-    throw new UnsupportedMayiInputError(request.requestId, request.display);
-  }
   const rawContinuationToken = channel.state.rawContinuationToken;
   if (!rawContinuationToken || !channel.state.target) {
     throw new MayiEveConfigurationError(
@@ -390,18 +409,30 @@ async function submitOneRequest(
       : { developmentOverride: runtime.publicOriginOverride }),
   });
   const idempotencyKey = await createMayiIdempotencyKey(context.session.id, request.requestId);
+  const suggestedApprover = channel.state.target.mayiUserId === undefined
+    ? {}
+    : { suggestedApproverId: channel.state.target.mayiUserId };
+  const callback = {
+    url: `${publicOrigin}${MAYI_CALLBACK_PATH}`,
+    state: callbackRequest.state,
+  };
+  if (!isApprovalShapedRequest(request)) {
+    // Mayi's generic inputs API takes no artefacts, so evidence staging is approval-only.
+    await runtime.client.inputs.request({
+      ...toGenericInputRequest(request),
+      expiresInSeconds: runtime.expiresInSeconds,
+      ...suggestedApprover,
+      callback,
+    }, { idempotencyKey });
+    return;
+  }
   const artefactIds = await stageRequestArtefacts(request, channel, context, runtime, idempotencyKey);
   await runtime.client.approvals.request({
     action: request.action,
     explanation: request.prompt,
     expiresInSeconds: runtime.expiresInSeconds,
-    ...(channel.state.target.mayiUserId === undefined
-      ? {}
-      : { suggestedApproverId: channel.state.target.mayiUserId }),
-    callback: {
-      url: `${publicOrigin}${MAYI_CALLBACK_PATH}`,
-      state: callbackRequest.state,
-    },
+    ...suggestedApprover,
+    callback,
     ...(artefactIds === undefined ? {} : { artefactIds }),
   }, { idempotencyKey });
 }
@@ -470,7 +501,7 @@ export function createInputRequestedHandler(runtime: MayiChannelRuntime) {
     const failures = results
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
       .map((result) => result.reason);
-    if (failures.length) throw new AggregateError(failures, "One or more Mayi approval requests failed");
+    if (failures.length) throw new AggregateError(failures, "One or more Mayi requests failed");
   };
 }
 
@@ -614,7 +645,7 @@ async function alreadyProcessed(eventId: string, runtime: MayiChannelRuntime): P
   }
 }
 
-export function createApprovalResolvedHandler(runtime: MayiChannelRuntime) {
+export function createResolvedCallbackHandler(runtime: MayiChannelRuntime) {
   return async (
     request: Request,
     args: RouteHandlerArgs<MayiChannelState>,
@@ -662,10 +693,31 @@ export function createApprovalResolvedHandler(runtime: MayiChannelRuntime) {
       return genericResponse(400, "Callback state is invalid");
     }
 
-    const optionId = verification.event.status === "approved" ? "approve" : "deny";
+    let inputResponse: { requestId: string; optionId?: string; text?: string };
+    if (verification.event.type === "input.resolved") {
+      const event = verification.event;
+      if (event.status !== "answered") {
+        // An expired or cancelled input has no safe synthetic answer, so the
+        // parked session is not resumed; acknowledge durably to stop redelivery.
+        if (!await markProcessed(event.id, runtime)) {
+          return genericResponse(503, "Callback acknowledgement is temporarily unavailable");
+        }
+        return new Response(null, { status: 208, headers: { "cache-control": "no-store" } });
+      }
+      inputResponse = {
+        requestId: state.requestId,
+        ...(event.answer.optionId === undefined ? {} : { optionId: event.answer.optionId }),
+        ...(event.answer.text === undefined ? {} : { text: event.answer.text }),
+      };
+    } else {
+      inputResponse = {
+        requestId: state.requestId,
+        optionId: verification.event.status === "approved" ? "approve" : "deny",
+      };
+    }
     try {
       const session = await args.send({
-        inputResponses: [{ requestId: state.requestId, optionId }],
+        inputResponses: [inputResponse],
       }, {
         auth: null,
         continuationToken: state.rawContinuationToken,
@@ -716,7 +768,7 @@ export function mayiChannel(config: MayiChannelConfig): Channel<MayiChannelState
         session: { id: session.id, continuationToken: session.continuationToken, auth: session.auth },
       };
     },
-    routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, createApprovalResolvedHandler(runtime))],
+    routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, createResolvedCallbackHandler(runtime))],
     async receive(input, { send }) {
       const mayiUserId = input.target.mayiUserId;
       if (mayiUserId !== undefined && !MAYI_USER_ID_PATTERN.test(mayiUserId)) {

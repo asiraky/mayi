@@ -13,6 +13,14 @@ by default production (`https://app.mayi.sh`):
    channel; a human (or, in auto mode, the script) approves it.
 6. The agent polls `get_approval` and must observe `APPROVED` plus a signed
    receipt.
+7. The agent then exercises human-in-the-loop **inputs** (the REST/SDK
+   `/api/inputs` surface): it requests one of each type — text, select, and
+   confirmation — the owner answers each, and the agent must observe `ANSWERED`
+   with a signed **answer attestation**. Each attestation is verified
+   cryptographically (EdDSA) against the deployment's published JWKS, binding
+   the answer to the input, the respondent, and the answer digest. A cancel
+   path (agent withdraws a pending ask; a late answer is rejected `409`) rounds
+   out the loop.
 
 It is a plain Node script (Node ≥ 20, no dependencies, no build step):
 

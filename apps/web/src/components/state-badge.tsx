@@ -1,4 +1,4 @@
-import type { ApprovalState } from "@mayi/contracts";
+import type { ApprovalState, InputState } from "@mayi/contracts";
 import { cn } from "~/lib/utils";
 
 /*
@@ -17,16 +17,18 @@ import { cn } from "~/lib/utils";
  * the breathing dot — which APPROVED does not have. Motion and tint carry the state
  * there, not the glyph colour.
  */
-const TONE: Record<ApprovalState, string> = {
+const TONE: Record<ApprovalState | InputState, string> = {
   PENDING: "border-primary/25 bg-primary/8 text-primary-ink",
   APPROVED: "border-foreground/20 bg-foreground/6 text-foreground",
+  // An answered question settles the same way an approval does: a fact, not a win.
+  ANSWERED: "border-foreground/20 bg-foreground/6 text-foreground",
   DENIED: "border-destructive/30 bg-destructive/8 text-destructive",
   EXPIRED: "border-border bg-muted text-muted-foreground",
   CANCELLED: "border-border bg-muted text-muted-foreground",
   DRAFT: "border-border bg-muted text-muted-foreground",
 };
 
-export function StateBadge({ state, className }: { state: ApprovalState; className?: string }) {
+export function StateBadge({ state, className }: { state: ApprovalState | InputState; className?: string }) {
   return (
     <span
       className={cn(

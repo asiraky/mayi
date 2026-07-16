@@ -1,6 +1,6 @@
 # `@mayiapp/eve`
 
-Durable Mayi approval channel for [Eve](https://github.com/vercel/eve) agents.
+Durable Mayi approval and human-input channel for [Eve](https://github.com/vercel/eve) agents.
 
 ## Quick start
 
@@ -177,9 +177,12 @@ The explicit `POST()` route is intentional. Eve 0.24.2 compiles a channel
 For every delivery, the adapter verifies Mayi's EdDSA JWS against Mayi's JWKS
 before it touches encrypted state or resumes Eve. It then opens the authenticated
 state and submits the response against the original Eve request ID and the
-original channel-local continuation token. An `approved` result chooses Eve's
-`approve` option. `denied`, `expired`, and `cancelled` choose `deny`, so the
-parked session resumes but the gated tool does not run.
+original channel-local continuation token. For an approval, an `approved`
+result chooses Eve's `approve` option; `denied`, `expired`, and `cancelled`
+choose `deny`, so the parked session resumes but the gated tool does not run.
+For a generic input, an `answered` result resumes the session with the
+respondent's option or text, while `expired` and `cancelled` are acknowledged
+without resuming (see Supported ask shapes).
 
 Callback delivery is at least once. A `2xx` response means Eve accepted the
 resume or had already accepted the same verified event. The adapter does not
@@ -253,18 +256,36 @@ receipts, or sensitive tool input.
   replay only a `DEAD_LETTER` job through the authenticated replay endpoint. The
   stable event ID makes duplicate delivery safe.
 
-## Eve 0.24.2 limitation for unsupported input
+## Supported ask shapes
 
-Phase one supports approval-shaped confirmation requests only. A freeform or
-select `ask_question` produces a descriptive `UnsupportedMayiInputError`; it is
-never converted into an approval and is never treated as a successful no-op.
+Every Eve `ask_question` request routes to one of Mayi's two request APIs:
 
-Eve 0.24.2 catches, logs, and swallows exceptions thrown by channel event
-handlers, and exposes no public send/resume operation inside an event handler.
-Consequently this rejection is visible in Eve's server logs but cannot currently
-be propagated to the author or used to fail the session through Eve's public
-contract; the session remains parked. Treat this as an unsupported-input error
-and monitor Eve logs. It is a residual Eve contract gap, not approval behavior.
+- An approve/deny confirmation — display `confirmation`, no freeform, exactly
+  the `approve` and `deny` options — becomes a Mayi approval. This is the
+  guarded-tool path: the human decision mints a signed receipt, and evidence
+  from the `artefacts` hook is attached for the approver.
+- Everything else becomes a generic Mayi input and resolves with a signed
+  answer attestation instead of an approval receipt. A `text` ask maps to a
+  text input. A `select` ask maps to a select input; option labels,
+  descriptions, and styles map through, and `allowFreeform` passes through
+  unchanged. A confirmation whose two options are not approve/deny maps to a
+  confirmation input; a confirmation with any other option count, or with
+  `allowFreeform`, maps to a select input so the freeform answer path survives
+  (Mayi confirmations forbid freeform). A select or confirmation with no
+  options is a freeform ask and maps to a text input. When the answer arrives,
+  the adapter resumes the parked session with the respondent's chosen option
+  or freeform text.
+
+Artefact evidence is approval-only. Mayi's generic inputs API does not accept
+artefacts, so the `artefacts` hook is not invoked for text, select, or
+non-approval confirmation asks.
+
+If an input expires or is cancelled before anyone answers, there is no safe
+synthetic answer, so the adapter does not resume the session. It acknowledges
+the callback so Mayi stops redelivering, and the session stays parked. Treat an
+unanswered ask as an operational signal and monitor for parked sessions. This
+differs from approvals, where `expired` and `cancelled` resolve to Eve's `deny`
+option and the session resumes without running the gated tool.
 
 The package is ESM-only, supports Node.js 24 and later (matching Eve), and pins
 its Eve peer to the tested `eve@0.24.2` contract.

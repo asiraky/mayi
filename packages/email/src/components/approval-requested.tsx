@@ -4,10 +4,10 @@ import { styles } from "./shared-styles";
 
 /*
  * The one email that matters: an agent is waiting on a human. It leads with the
- * exact action (mono, machine data), the agent's explanation (prose), and a single
- * deep link that lands directly on the approval so the decision is two taps away.
- * Nothing sensitive beyond the action name travels in the mail itself — the input
- * payload, artefacts and receipt live behind the authenticated link.
+ * agent's explanation as prose — the reason a person can actually judge — with the
+ * action named in plain language and a single deep link that lands directly on the
+ * approval so the decision is two taps away. Nothing sensitive travels in the mail
+ * itself — the exact payload, artefacts and receipt live behind the authenticated link.
  */
 
 export interface ApprovalRequestedEmailProps {
@@ -28,39 +28,16 @@ export default function ApprovalRequested({
   agentName,
   workspaceName,
   highRisk,
-  expiresAtIso,
   expiresInText,
   reviewUrl,
-  approvalId,
 }: ApprovalRequestedEmailProps) {
   return (
     <EmailLayout preview={`${agentName} asks: may I ${actionKind}? Expires ${expiresInText}.`}>
       <Text style={styles.kicker}>Approval requested</Text>
-      <Text style={styles.actionName}>{actionKind}</Text>
-      <Text style={styles.prose}>{explanation}</Text>
-
-      <table style={styles.metaTable}>
-        <tbody>
-          <tr>
-            <td style={styles.metaLabel}>agent</td>
-            <td style={styles.metaValue}>{agentName}</td>
-          </tr>
-          <tr>
-            <td style={styles.metaLabel}>workspace</td>
-            <td style={styles.metaValue}>{workspaceName}</td>
-          </tr>
-          <tr>
-            <td style={styles.metaLabel}>expires</td>
-            <td style={styles.metaValue}>
-              {expiresInText} · {expiresAtIso}
-            </td>
-          </tr>
-          <tr>
-            <td style={styles.metaLabel}>request</td>
-            <td style={styles.metaValue}>{approvalId}</td>
-          </tr>
-        </tbody>
-      </table>
+      <Text style={styles.hero}>{explanation}</Text>
+      <Text style={styles.metaLine}>
+        {agentName} is asking to {actionKind} in {workspaceName} · expires {expiresInText}
+      </Text>
 
       {highRisk && (
         <table style={styles.highRisk} width="100%">
@@ -68,7 +45,7 @@ export default function ApprovalRequested({
             <tr>
               <td>
                 <Text style={styles.highRiskText}>
-                  High-risk action — deciding it will ask you to re-authenticate.
+                  This is a high-risk request — deciding it will ask you to sign in again.
                 </Text>
               </td>
             </tr>

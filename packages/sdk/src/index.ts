@@ -1,6 +1,7 @@
 import {
   Approval as ApprovalSchema,
   Artefact as ArtefactSchema,
+  Input as InputSchema,
   createId,
 } from "@mayi/contracts";
 import type {
@@ -9,6 +10,9 @@ import type {
   Artefact,
   CreateApproval,
   Decision,
+  Input,
+  InputAnswer,
+  InputRequest,
   Session,
   StagedArtefact,
 } from "./public-contracts";
@@ -24,10 +28,18 @@ export type {
   CreateApproval,
   Decision,
   EnforcementMode,
+  Input,
+  InputAnswer,
+  InputOption,
+  InputRequest,
+  InputResolvedEvent,
+  InputState,
+  InputType,
   Session,
   StagedArtefact,
   ToolCallAction,
   VersionedAction,
+  WebhookEvent,
 } from "./public-contracts";
 
 export * from "./callback-state";
@@ -48,6 +60,14 @@ export interface ApprovalRequestOptions {
   idempotencyKey: string;
 }
 
+export interface InputRequestOptions {
+  idempotencyKey: string;
+}
+
+export interface ListInputsParams {
+  state?: string | undefined;
+}
+
 export interface StageRequestArtefactOptions {
   signal?: AbortSignal | undefined;
   size?: number | undefined;
@@ -59,6 +79,7 @@ export type PendingApproval = Approval & {
   actionDigest: string;
   manifestDigest: string;
 };
+export type PendingInput = Input & { state: "PENDING" };
 export type UploadedArtefact = Omit<Artefact, "ordinal">;
 export type ArtefactMediaType = "application/pdf" | "image/png" | "image/jpeg" | "image/webp";
 export type ArtefactBody = Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array>;
@@ -206,8 +227,20 @@ function parsePendingApproval(value: unknown): PendingApproval {
   return approval as PendingApproval;
 }
 
+function parsePendingInput(value: unknown): PendingInput {
+  const parsed = InputSchema.safeParse(value);
+  if (!parsed.success || parsed.data.state !== "PENDING") throw new MayiResponseError();
+  return parsed.data as PendingInput;
+}
+
 export class MayiClient {
   readonly approvals: { request: (input: ApprovalRequest, options: ApprovalRequestOptions) => Promise<PendingApproval> };
+  readonly inputs: {
+    request: (input: InputRequest, options: InputRequestOptions) => Promise<PendingInput>;
+    get: (id: string) => Promise<Input>;
+    list: (params?: ListInputsParams) => Promise<Input[]>;
+    cancel: (id: string) => Promise<Input>;
+  };
 
   private readonly origin: string;
   private readonly getAccessToken: GetAccessToken | undefined;
@@ -225,6 +258,12 @@ export class MayiClient {
 
     this.approvals = {
       request: (input, requestOptions) => this.requestApproval(input, requestOptions),
+    };
+    this.inputs = {
+      request: (input, requestOptions) => this.requestInput(input, requestOptions),
+      get: (id) => this.request(`/api/inputs/${encodeURIComponent(id)}`, {}, "optional-access-token") as Promise<Input>,
+      list: (params) => this.request(`/api/inputs${params?.state ? `?state=${encodeURIComponent(params.state)}` : ""}`, {}, "optional-access-token") as Promise<Input[]>,
+      cancel: (id) => this.request(`/api/inputs/${encodeURIComponent(id)}/cancel`, { method: "POST" }, "required-access-token") as Promise<Input>,
     };
   }
 
@@ -296,6 +335,18 @@ export class MayiClient {
       body: JSON.stringify(input),
     }, "required-access-token");
     return parsePendingApproval(value);
+  }
+
+  private async requestInput(input: InputRequest, options: InputRequestOptions): Promise<PendingInput> {
+    if (!options || !validIdempotencyKey(options.idempotencyKey)) {
+      throw new MayiConfigurationError("idempotencyKey must contain 1 to 200 characters");
+    }
+    const value = await this.request("/api/inputs", {
+      method: "POST",
+      headers: { "idempotency-key": options.idempotencyKey },
+      body: JSON.stringify(input),
+    }, "required-access-token");
+    return parsePendingInput(value);
   }
 
   async stageRequestArtefact(
@@ -409,6 +460,18 @@ export class MayiClient {
 
   decide(id: string, input: Decision) {
     return this.request(`/api/approvals/${encodeURIComponent(id)}/decision`, { method: "POST", body: JSON.stringify(input) }) as Promise<Approval>;
+  }
+
+  listInputs(state?: string) {
+    return this.request(`/api/inputs${state ? `?state=${encodeURIComponent(state)}` : ""}`) as Promise<Input[]>;
+  }
+
+  input(id: string) {
+    return this.request(`/api/inputs/${encodeURIComponent(id)}`) as Promise<Input>;
+  }
+
+  answerInput(id: string, input: InputAnswer) {
+    return this.request(`/api/inputs/${encodeURIComponent(id)}/answer`, { method: "POST", body: JSON.stringify(input) }) as Promise<Input>;
   }
 
   cancel(id: string) {

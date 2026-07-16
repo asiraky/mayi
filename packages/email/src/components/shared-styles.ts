@@ -73,6 +73,15 @@ export const styles = {
     wordBreak: "break-word" as const,
   } as CSSProperties,
 
+  hero: {
+    color: colors.ink,
+    fontSize: "19px",
+    fontWeight: 500,
+    letterSpacing: "-0.01em",
+    lineHeight: "28px",
+    margin: "0 0 14px",
+  } as CSSProperties,
+
   prose: {
     color: colors.body,
     fontSize: "15px",
@@ -80,31 +89,11 @@ export const styles = {
     margin: "0 0 8px",
   } as CSSProperties,
 
-  metaTable: {
-    width: "100%",
-    borderCollapse: "collapse" as const,
-    margin: "18px 0 0",
-  } as CSSProperties,
-
-  metaLabel: {
+  metaLine: {
     color: colors.muted,
-    fontSize: "12px",
+    fontSize: "13px",
     lineHeight: "20px",
-    padding: "6px 16px 6px 0",
-    verticalAlign: "top" as const,
-    whiteSpace: "nowrap" as const,
-    borderTop: `1px solid ${colors.border}`,
-  } as CSSProperties,
-
-  metaValue: {
-    color: colors.ink,
-    fontFamily: mono,
-    fontSize: "12px",
-    lineHeight: "20px",
-    padding: "6px 0",
-    wordBreak: "break-all" as const,
-    borderTop: `1px solid ${colors.border}`,
-    width: "100%",
+    margin: "14px 0 0",
   } as CSSProperties,
 
   highRisk: {

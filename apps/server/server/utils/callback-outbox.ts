@@ -1,9 +1,13 @@
 import {
   ApprovalResolvedEvent,
   CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+  InputResolvedEvent,
   canonicalize,
   createId,
   type ApprovalResolvedEvent as ApprovalResolvedEventType,
+  type InputAnswer,
+  type InputResolvedEvent as InputResolvedEventType,
+  type WebhookEvent as WebhookEventType,
 } from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
 import type { Sql, TransactionSql } from "postgres";
@@ -14,6 +18,7 @@ import { signWebhook } from "./forwarding";
 import { database, strictlyPublicEdgeFetchConfigured } from "./runtime";
 
 export const CALLBACK_JOB_TYPE = "callback.approval_resolved";
+export const INPUT_CALLBACK_JOB_TYPE = "callback.input_resolved";
 export const OUTBOX_MAX_ATTEMPTS = 10;
 export const CALLBACK_MAX_ATTEMPTS = OUTBOX_MAX_ATTEMPTS;
 export const CALLBACK_LEASE_SECONDS = 5 * 60;
@@ -28,10 +33,21 @@ export type OutboxJob = {
   id: string;
   workspace_id: string;
   type: string;
-  payload: { approvalId?: string; destinationId?: string; deliveryId?: string; callbackId?: string };
+  payload: { approvalId?: string; inputId?: string; destinationId?: string; deliveryId?: string; callbackId?: string };
   attempts: number;
   lease_token: string;
 };
+
+type CallbackJobType = typeof CALLBACK_JOB_TYPE | typeof INPUT_CALLBACK_JOB_TYPE;
+
+export function isCallbackJobType(type: string): type is CallbackJobType {
+  return type === CALLBACK_JOB_TYPE || type === INPUT_CALLBACK_JOB_TYPE;
+}
+
+/** Both callback tables share one column layout and state machine; only the parent differs. */
+function callbackTableFor(type: string): "approval_callbacks" | "input_callbacks" {
+  return type === INPUT_CALLBACK_JOB_TYPE ? "input_callbacks" : "approval_callbacks";
+}
 
 type CallbackRow = {
   id: string;
@@ -114,6 +130,38 @@ export async function activateApprovalCallback(sql: DatabaseSql, approvalId: str
   return callbackId;
 }
 
+/**
+ * Activates the existing per-input callback and queues its only generic job.
+ * This must be called with the transaction that commits the terminal input.
+ * Expired inputs carry no terminal timestamp column, so their stable event
+ * time is the moment the expiry was committed.
+ */
+export async function activateInputCallback(sql: DatabaseSql, inputId: string): Promise<string | undefined> {
+  const rows = await sql`
+    update input_callbacks c
+    set delivery_status = 'READY', occurred_at = coalesce(i.answered_at, i.cancelled_at, now()),
+      next_attempt_at = coalesce(i.answered_at, i.cancelled_at, now()), attempts = 0, last_error = null,
+      lease_expires_at = null, completed_at = null, dead_lettered_at = null
+    from inputs i
+    where c.input_id = i.id and i.id = ${inputId}
+      and i.state in ('ANSWERED', 'EXPIRED', 'CANCELLED')
+      and c.delivery_status = 'WAITING'
+    returning c.id, c.workspace_id
+  `;
+  const callback = rows[0];
+  if (!callback) return undefined;
+  const callbackId = String(callback.id);
+  await sql`
+    insert into jobs (id, workspace_id, type, dedupe_key, payload)
+    values (
+      ${createId()}, ${String(callback.workspace_id)}, ${INPUT_CALLBACK_JOB_TYPE}, ${callbackId},
+      ${JSON.stringify({ callbackId })}::jsonb
+    )
+    on conflict (type, dedupe_key) do nothing
+  `;
+  return callbackId;
+}
+
 export async function claimNextJob(
   sql: Sql = database().sql,
   options: { jobId?: string } = {},
@@ -121,16 +169,18 @@ export async function claimNextJob(
   return sql.begin(async (tx) => {
     // A crash during the final allowed attempt must not leave RUNNING forever.
     // Its stable event can still be manually replayed from the dead letter state.
-    await tx`
-      update approval_callbacks c set delivery_status = 'DEAD_LETTER',
-        lease_expires_at = null, next_attempt_at = null, last_error = 'lease_exhausted',
-        dead_lettered_at = now()
-      from jobs j
-      where j.type = ${CALLBACK_JOB_TYPE} and j.dedupe_key = c.id
-        and j.state = 'RUNNING' and j.attempts >= ${CALLBACK_MAX_ATTEMPTS}
-        and coalesce(j.locked_at, '-infinity'::timestamptz) <= now() - make_interval(secs => ${CALLBACK_LEASE_SECONDS})
-        and c.delivery_status = 'RUNNING'
-    `;
+    for (const jobType of [CALLBACK_JOB_TYPE, INPUT_CALLBACK_JOB_TYPE] as const) {
+      await tx`
+        update ${tx(callbackTableFor(jobType))} c set delivery_status = 'DEAD_LETTER',
+          lease_expires_at = null, next_attempt_at = null, last_error = 'lease_exhausted',
+          dead_lettered_at = now()
+        from jobs j
+        where j.type = ${jobType} and j.dedupe_key = c.id
+          and j.state = 'RUNNING' and j.attempts >= ${CALLBACK_MAX_ATTEMPTS}
+          and coalesce(j.locked_at, '-infinity'::timestamptz) <= now() - make_interval(secs => ${CALLBACK_LEASE_SECONDS})
+          and c.delivery_status = 'RUNNING'
+      `;
+    }
     await tx`
       update jobs set state = 'DEAD_LETTER', locked_at = null,
         lease_token = null, completed_at = now(), last_error = 'lease_exhausted'
@@ -155,11 +205,11 @@ export async function claimNextJob(
       returning id, workspace_id, type, payload, attempts, lease_token
     `;
     const job = claimed[0] as OutboxJob;
-    if (job.type === CALLBACK_JOB_TYPE) {
+    if (isCallbackJobType(job.type)) {
       const callbackId = job.payload.callbackId;
       if (!callbackId) throw new Error("Callback job payload is invalid");
       const updated = await tx`
-        update approval_callbacks
+        update ${tx(callbackTableFor(job.type))}
         set delivery_status = 'RUNNING', attempts = ${job.attempts},
           next_attempt_at = null,
           lease_expires_at = now() + make_interval(secs => ${CALLBACK_LEASE_SECONDS})
@@ -186,6 +236,62 @@ async function loadCallback(sql: DatabaseSql, job: OutboxJob): Promise<CallbackR
   `;
   if (!rows[0]) throw new CallbackDeliveryError("callback_missing", false);
   return rows[0] as CallbackRow;
+}
+
+type InputCallbackRow = {
+  id: string;
+  input_id: string;
+  workspace_id: string;
+  url: string;
+  state: string;
+  delivery_status: string;
+  occurred_at: Date | string;
+  input_state: string;
+  answer: InputAnswer | null;
+  attestation: string | null;
+  respondent_id: string | null;
+  respondent_email: string | null;
+};
+
+async function loadInputCallback(sql: DatabaseSql, job: OutboxJob): Promise<InputCallbackRow> {
+  const callbackId = job.payload.callbackId;
+  if (!callbackId) throw new CallbackDeliveryError("invalid_job", false);
+  const rows = await sql`
+    select c.id, c.input_id, c.workspace_id, c.url, c.state, c.delivery_status,
+      c.occurred_at, i.state as input_state, i.answer, i.attestation,
+      i.respondent_id, u.email as respondent_email
+    from input_callbacks c
+    join inputs i on i.id = c.input_id and i.workspace_id = c.workspace_id
+    left join users u on u.id = i.respondent_id
+    where c.id = ${callbackId} and c.workspace_id = ${job.workspace_id}
+  `;
+  if (!rows[0]) throw new CallbackDeliveryError("callback_missing", false);
+  return rows[0] as InputCallbackRow;
+}
+
+export function inputCallbackEvent(row: InputCallbackRow): InputResolvedEventType {
+  const status = row.input_state.toLowerCase();
+  const event = {
+    id: row.id,
+    type: "input.resolved",
+    version: 1,
+    inputId: row.input_id,
+    status,
+    state: row.state,
+    occurredAt: new Date(row.occurred_at).toISOString(),
+    ...(status === "answered" && row.respondent_id && row.answer && row.attestation
+      ? {
+          respondent: { id: row.respondent_id, email: row.respondent_email },
+          answer: row.answer,
+          attestation: row.attestation,
+        }
+      : {}),
+  };
+  try {
+    return InputResolvedEvent.parse(event);
+  } catch {
+    throw new CallbackDeliveryError("invalid_event", false);
+  }
 }
 
 export function callbackEvent(row: CallbackRow): ApprovalResolvedEventType {
@@ -373,6 +479,25 @@ function classifyStatus(status: number): void {
   throw new CallbackDeliveryError("http_status", false);
 }
 
+async function deliverCallbackEvent(
+  url: string,
+  event: WebhookEventType,
+  dependencies: CallbackDeliveryDependencies,
+): Promise<{ body: string; status: number }> {
+  const body = canonicalize(event);
+  const signature = await (dependencies.sign ?? signWebhook)(event);
+  let target: ValidatedPublicUrl;
+  try {
+    target = await validatePublicHttpsUrl(url, dependencies.resolve ? { resolve: dependencies.resolve } : {});
+  } catch (error) {
+    if (error instanceof PublicUrlValidationError) throw new CallbackDeliveryError(`url_${error.code}`, false);
+    throw new CallbackDeliveryError("url_policy", false);
+  }
+  const response = await (dependencies.transport ?? deliverCallbackHttp)(target, body, signature);
+  classifyStatus(response.status);
+  return { body, status: response.status };
+}
+
 /** Sends the canonical body signed byte-for-byte by the production webhook signer. */
 export async function sendApprovalCallback(
   job: OutboxJob,
@@ -381,18 +506,20 @@ export async function sendApprovalCallback(
   const sql = dependencies.sql ?? database().sql;
   const row = await loadCallback(sql, job);
   const event = callbackEvent(row);
-  const body = canonicalize(event);
-  const signature = await (dependencies.sign ?? signWebhook)(event);
-  let target: ValidatedPublicUrl;
-  try {
-    target = await validatePublicHttpsUrl(row.url, dependencies.resolve ? { resolve: dependencies.resolve } : {});
-  } catch (error) {
-    if (error instanceof PublicUrlValidationError) throw new CallbackDeliveryError(`url_${error.code}`, false);
-    throw new CallbackDeliveryError("url_policy", false);
-  }
-  const response = await (dependencies.transport ?? deliverCallbackHttp)(target, body, signature);
-  classifyStatus(response.status);
-  return { event, body, status: response.status };
+  const { body, status } = await deliverCallbackEvent(row.url, event, dependencies);
+  return { event, body, status };
+}
+
+/** Sends the canonical input.resolved body signed byte-for-byte by the production webhook signer. */
+export async function sendInputCallback(
+  job: OutboxJob,
+  dependencies: CallbackDeliveryDependencies = {},
+): Promise<{ event: InputResolvedEventType; body: string; status: number }> {
+  const sql = dependencies.sql ?? database().sql;
+  const row = await loadInputCallback(sql, job);
+  const event = inputCallbackEvent(row);
+  const { body, status } = await deliverCallbackEvent(row.url, event, dependencies);
+  return { event, body, status };
 }
 
 export function callbackRetryDelaySeconds(attempt: number, random = Math.random): number {
@@ -414,7 +541,7 @@ async function lockCurrentJobLease(tx: TransactionSql, job: OutboxJob): Promise<
 async function lockCurrentCallbackLease(tx: TransactionSql, job: OutboxJob): Promise<boolean> {
   if (!await lockCurrentJobLease(tx, job)) return false;
   const currentCallback = await tx`
-    select id from approval_callbacks where id = ${job.payload.callbackId!}
+    select id from ${tx(callbackTableFor(job.type))} where id = ${job.payload.callbackId!}
       and workspace_id = ${job.workspace_id} and delivery_status = 'RUNNING'
       and attempts = ${job.attempts}
     for update
@@ -487,7 +614,7 @@ export async function markCallbackDelivered(job: OutboxJob, sql: Sql = database(
   return sql.begin(async (tx) => {
     if (!await lockCurrentCallbackLease(tx, job)) return false;
     await tx`
-      update approval_callbacks set delivery_status = 'DELIVERED', completed_at = now(),
+      update ${tx(callbackTableFor(job.type))} set delivery_status = 'DELIVERED', completed_at = now(),
         dead_lettered_at = null, lease_expires_at = null, next_attempt_at = null, last_error = null
       where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
         and delivery_status = 'RUNNING' and attempts = ${job.attempts}
@@ -517,7 +644,7 @@ export async function markCallbackFailed(
     if (!await lockCurrentCallbackLease(tx, job)) return "stale" as const;
     if (retry) {
       await tx`
-        update approval_callbacks set delivery_status = 'FAILED', lease_expires_at = null,
+        update ${tx(callbackTableFor(job.type))} set delivery_status = 'FAILED', lease_expires_at = null,
           last_error = ${failure.code}, next_attempt_at = now() + make_interval(secs => ${delay!})
         where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
       `;
@@ -529,7 +656,7 @@ export async function markCallbackFailed(
       `;
     } else {
       await tx`
-        update approval_callbacks set delivery_status = 'DEAD_LETTER', lease_expires_at = null,
+        update ${tx(callbackTableFor(job.type))} set delivery_status = 'DEAD_LETTER', lease_expires_at = null,
           last_error = ${failure.code}, next_attempt_at = null, dead_lettered_at = now()
         where id = ${job.payload.callbackId!} and workspace_id = ${job.workspace_id}
       `;
@@ -549,10 +676,18 @@ export async function replayDeadLetterCallback(
   sql: Sql = database().sql,
 ): Promise<{ id: string; status: "READY" }> {
   return sql.begin(async (tx) => {
+    // Callback IDs are minted per table, so at most one table owns this ID.
+    const [owner] = await tx`
+      select ${CALLBACK_JOB_TYPE} as job_type from approval_callbacks where id = ${callbackId}
+      union all
+      select ${INPUT_CALLBACK_JOB_TYPE} from input_callbacks where id = ${callbackId}
+    `;
+    const jobType = owner ? String(owner.job_type) : CALLBACK_JOB_TYPE;
+    const table = callbackTableFor(jobType);
     const [current] = await tx`
       select id, delivery_status,
         occurred_at >= now() - make_interval(secs => ${CALLBACK_ACCEPTANCE_WINDOW_SECONDS}) as replayable
-      from approval_callbacks where id = ${callbackId}
+      from ${tx(table)} where id = ${callbackId}
       for update
     `;
     if (!current || current.delivery_status !== "DEAD_LETTER") {
@@ -562,7 +697,7 @@ export async function replayDeadLetterCallback(
       throw new CallbackDeliveryError("callback_replay_window_expired", false);
     }
     const rows = await tx`
-      update approval_callbacks set delivery_status = 'READY', attempts = 0,
+      update ${tx(table)} set delivery_status = 'READY', attempts = 0,
         next_attempt_at = now(), lease_expires_at = null, last_error = null,
         completed_at = null, dead_lettered_at = null
       where id = ${callbackId} and delivery_status = 'DEAD_LETTER'
@@ -572,7 +707,7 @@ export async function replayDeadLetterCallback(
     const jobs = await tx`
       update jobs set state = 'READY', attempts = 0, available_at = now(), locked_at = null, lease_token = null,
         last_error = null, completed_at = null
-      where type = ${CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}
+      where type = ${jobType} and dedupe_key = ${callbackId}
       returning id
     `;
     if (!jobs[0]) throw new Error("Callback replay job is missing");

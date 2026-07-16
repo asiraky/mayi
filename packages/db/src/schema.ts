@@ -1,4 +1,4 @@
-import type { Action } from "@mayi/contracts";
+import type { Action, InputAnswer, InputOption } from "@mayi/contracts";
 import { sql } from "drizzle-orm";
 import {
   boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
@@ -15,6 +15,8 @@ export const enforcementMode = pgEnum("enforcement_mode", ["cooperative", "verif
 export const destinationMode = pgEnum("destination_mode", ["notify_only", "may_decide"]);
 export const destinationType = pgEnum("destination_type", ["WEBHOOK", "EMAIL"]);
 export const callbackDeliveryStatus = pgEnum("callback_delivery_status", ["WAITING", "READY", "RUNNING", "FAILED", "DELIVERED", "DEAD_LETTER"]);
+export const inputType = pgEnum("input_type", ["text", "select", "confirmation"]);
+export const inputState = pgEnum("input_state", ["PENDING", "ANSWERED", "EXPIRED", "CANCELLED"]);
 export const jobState = pgEnum("job_state", ["READY", "RUNNING", "SUCCEEDED", "FAILED", "DEAD_LETTER"]);
 
 const createdAt = timestamp("created_at", { withTimezone: true }).defaultNow().notNull();
@@ -213,6 +215,65 @@ export const eligibleApprovers = pgTable("eligible_approvers", {
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
   userId: identifier("user_id").references(() => users.id).notNull(),
 }, (t) => [primaryKey({ columns: [t.approvalId, t.userId] }), index("eligible_user_idx").on(t.workspaceId, t.userId)]);
+
+export const inputs = pgTable("inputs", {
+  id: identifier("id").primaryKey(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  agentId: identifier("agent_id").references(() => agents.id).notNull(),
+  type: inputType("type").notNull(),
+  prompt: text("prompt").notNull(),
+  options: jsonb("options").$type<InputOption[]>(),
+  allowFreeform: boolean("allow_freeform").default(false).notNull(),
+  state: inputState("state").default("PENDING").notNull(),
+  answer: jsonb("answer").$type<InputAnswer>(),
+  attestation: text("attestation"),
+  respondentId: identifier("respondent_id").references(() => users.id),
+  suggestedApproverId: identifier("suggested_approver_id").references(() => users.id),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt,
+  answeredAt: timestamp("answered_at", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+}, (t) => [
+  index("inputs_workspace_state_idx").on(t.workspaceId, t.state, t.createdAt),
+  index("inputs_expiry_idx").on(t.state, t.expiresAt),
+  check("inputs_answered_check", sql`(${t.state} = 'ANSWERED') = (${t.answer} IS NOT NULL AND ${t.attestation} IS NOT NULL AND ${t.respondentId} IS NOT NULL AND ${t.answeredAt} IS NOT NULL)`),
+  check("inputs_cancelled_check", sql`(${t.state} = 'CANCELLED') = (${t.cancelledAt} IS NOT NULL)`),
+]);
+
+export const inputCallbacks = pgTable("input_callbacks", {
+  id: identifier("id").primaryKey(),
+  inputId: identifier("input_id").references(() => inputs.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  url: text("url").notNull(),
+  state: text("state").notNull(),
+  deliveryStatus: callbackDeliveryStatus("delivery_status").default("WAITING").notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }),
+  createdAt,
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("input_callbacks_input_uidx").on(t.inputId),
+  index("input_callbacks_workspace_idx").on(t.workspaceId, t.createdAt),
+  index("input_callbacks_delivery_idx").on(t.deliveryStatus, t.nextAttemptAt),
+  check("input_callbacks_url_length_check", sql`char_length(${t.url}) BETWEEN 1 AND 2048`),
+  check("input_callbacks_state_length_check", sql`char_length(${t.state}) BETWEEN 1 AND 32768`),
+  check("input_callbacks_attempts_check", sql`${t.attempts} BETWEEN 0 AND 10`),
+  check("input_callbacks_last_error_length_check", sql`${t.lastError} IS NULL OR char_length(${t.lastError}) <= 200`),
+  check("input_callbacks_occurred_check", sql`(${t.deliveryStatus} = 'WAITING') = (${t.occurredAt} IS NULL)`),
+  check("input_callbacks_running_lease_check", sql`${t.deliveryStatus} <> 'RUNNING' OR ${t.leaseExpiresAt} IS NOT NULL`),
+  check("input_callbacks_completed_check", sql`(${t.deliveryStatus} = 'DELIVERED') = (${t.completedAt} IS NOT NULL)`),
+  check("input_callbacks_dead_lettered_check", sql`(${t.deliveryStatus} = 'DEAD_LETTER') = (${t.deadLetteredAt} IS NOT NULL)`),
+]);
+
+export const inputEligibleRespondents = pgTable("input_eligible_respondents", {
+  inputId: identifier("input_id").references(() => inputs.id, { onDelete: "cascade" }).notNull(),
+  workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  userId: identifier("user_id").references(() => users.id).notNull(),
+}, (t) => [primaryKey({ columns: [t.inputId, t.userId] }), index("input_eligible_user_idx").on(t.workspaceId, t.userId)]);
 
 export const idempotencyKeys = pgTable("idempotency_keys", {
   workspaceId: identifier("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),

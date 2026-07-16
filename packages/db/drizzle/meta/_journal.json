@@ -78,6 +78,13 @@
       "when": 1784180562291,
       "tag": "0010_default_email_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784210006170,
+      "tag": "0011_hitl_inputs",
+      "breakpoints": true
     }
   ]
 }

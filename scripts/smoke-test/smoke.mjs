@@ -11,8 +11,8 @@
 // account and drives the same server endpoints (consent form post, decision
 // endpoint) directly, so it needs no browser and no mailbox.
 
-/* global console, fetch */
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+/* global console, fetch, Buffer */
+import { createHash, createPublicKey, randomBytes, randomUUID, verify as cryptoVerify } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
@@ -302,6 +302,173 @@ async function pollUntilDecided(accessToken, id, timeoutMs) {
   }
 }
 
+// ── Human-in-the-loop inputs (text / select / confirmation) ──────────────────
+// The inputs feature is a REST + SDK resource, not an MCP tool: agents call
+// POST /api/inputs with their bearer token; an owner/approver answers through
+// POST /api/inputs/:id/answer (the app screen, or the email deep link). This
+// mirrors the approval leg but resolves with a signed *answer attestation*
+// instead of a receipt, which we verify against the published JWKS below.
+
+async function requestInput(accessToken, body) {
+  const response = await api("/api/inputs", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "idempotency-key": randomUUID(),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (response.status !== 200) fail(`POST /api/inputs (${body.type}) returned ${response.status}: ${text.slice(0, 400)}`);
+  const input = JSON.parse(text);
+  if (input.state !== "PENDING") fail(`requested ${body.type} input is ${input.state}, expected PENDING`);
+  return input;
+}
+
+async function getInputAsAgent(accessToken, id) {
+  return apiJson(`/api/inputs/${id}`, { headers: { authorization: `Bearer ${accessToken}` } });
+}
+
+async function answerInput(session, id, answer) {
+  return apiJson(`/api/inputs/${id}/answer`, {
+    method: "POST",
+    headers: { ...session, "content-type": "application/json" },
+    body: JSON.stringify(answer),
+  });
+}
+
+async function cancelInput(accessToken, id) {
+  return apiJson(`/api/inputs/${id}/cancel`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+  });
+}
+
+function decodeJwtSegment(segment) {
+  return JSON.parse(Buffer.from(segment, "base64url").toString("utf8"));
+}
+
+// Verify the EdDSA answer attestation against the server's published JWKS,
+// zero-dependency: this is the crypto leg the whole product rests on, so the
+// smoke test proves an answer is cryptographically bound to the input, the
+// respondent, and the answer digest — not merely that a string was stored.
+async function verifyAttestation(attestation, { inputId, respondentId, expectedAnswer }) {
+  const parts = attestation.split(".");
+  if (parts.length !== 3) fail("attestation is not a compact JWS (expected three segments)");
+  const [headerSegment, payloadSegment, signatureSegment] = parts;
+  const header = decodeJwtSegment(headerSegment);
+  if (header.alg !== "EdDSA") fail(`attestation alg is ${header.alg}, expected EdDSA`);
+
+  const jwks = await apiJson("/.well-known/jwks.json");
+  const jwk = jwks.keys.find((candidate) => candidate.kid === header.kid);
+  if (!jwk) fail(`attestation kid ${header.kid} is not published in JWKS`);
+
+  const publicKey = createPublicKey({ key: jwk, format: "jwk" });
+  const signingInput = Buffer.from(`${headerSegment}.${payloadSegment}`, "ascii");
+  const signature = Buffer.from(signatureSegment, "base64url");
+  if (!cryptoVerify(null, signingInput, publicKey, signature)) {
+    fail("attestation signature failed EdDSA verification against the published JWKS");
+  }
+
+  const claims = decodeJwtSegment(payloadSegment);
+  if (claims.sub !== inputId) fail(`attestation sub ${claims.sub} != input ${inputId}`);
+  if (claims.respondent_id !== respondentId) fail(`attestation respondent_id ${claims.respondent_id} != ${respondentId}`);
+  if (JSON.stringify(claims.answer) !== JSON.stringify(expectedAnswer)) {
+    fail(`attestation answer ${JSON.stringify(claims.answer)} != ${JSON.stringify(expectedAnswer)}`);
+  }
+  if (typeof claims.answer_digest !== "string" || !claims.answer_digest) fail("attestation is missing an answer_digest");
+  if ("exp" in claims) fail("answer attestation must not carry an exp claim (it is durable provenance, not an enforceable grant)");
+  return claims;
+}
+
+// Drive one input type through request → answer → agent-observes-ANSWERED, and
+// verify the resolved attestation cryptographically. Returns nothing; fails hard.
+async function exerciseInput(session, accessToken, ownerUserId, { label, request, answer, expectedAnswer }) {
+  const input = await requestInput(accessToken, request);
+  info(`${label}: input ${input.id} PENDING`);
+  const answered = await answerInput(session, input.id, answer);
+  if (answered.state !== "ANSWERED") fail(`${label}: answer left input ${answered.state}, expected ANSWERED`);
+  if (answered.respondentId !== ownerUserId) fail(`${label}: respondentId ${answered.respondentId} != owner ${ownerUserId}`);
+  const observed = await getInputAsAgent(accessToken, input.id);
+  if (observed.state !== "ANSWERED") fail(`${label}: agent sees ${observed.state}, expected ANSWERED`);
+  if (!observed.attestation) fail(`${label}: answered input has no attestation`);
+  if (JSON.stringify(observed.answer) !== JSON.stringify(expectedAnswer)) {
+    fail(`${label}: agent sees answer ${JSON.stringify(observed.answer)} != ${JSON.stringify(expectedAnswer)}`);
+  }
+  await verifyAttestation(observed.attestation, { inputId: input.id, respondentId: ownerUserId, expectedAnswer });
+  ok(`${label}: ANSWERED, attestation verified against JWKS`);
+  return input;
+}
+
+async function runInputsLeg(session, accessToken, ownerUserId) {
+  step("Exercising human-in-the-loop inputs (text / select / confirmation)");
+
+  await exerciseInput(session, accessToken, ownerUserId, {
+    label: "text",
+    request: { type: "text", prompt: "Smoke test: what should the deploy note say?", expiresInSeconds: 1800 },
+    answer: { text: "Ship it — smoke test answer." },
+    expectedAnswer: { text: "Ship it — smoke test answer." },
+  });
+
+  await exerciseInput(session, accessToken, ownerUserId, {
+    label: "select",
+    request: {
+      type: "select",
+      prompt: "Smoke test: which environment?",
+      options: [
+        { id: "staging", label: "Staging" },
+        { id: "prod", label: "Production", style: "danger" },
+      ],
+      expiresInSeconds: 1800,
+    },
+    answer: { optionId: "staging" },
+    expectedAnswer: { optionId: "staging" },
+  });
+
+  await exerciseInput(session, accessToken, ownerUserId, {
+    label: "confirmation",
+    request: {
+      type: "confirmation",
+      prompt: "Smoke test: proceed with the irreversible action?",
+      options: [
+        { id: "yes", label: "Yes, proceed", style: "danger" },
+        { id: "no", label: "No, stop" },
+      ],
+      expiresInSeconds: 1800,
+    },
+    answer: { optionId: "yes" },
+    expectedAnswer: { optionId: "yes" },
+  });
+
+  // Cancel leg: the agent withdraws a still-pending ask; the owner must then be
+  // unable to answer it, and the agent must observe CANCELLED.
+  const toCancel = await requestInput(accessToken, {
+    type: "text",
+    prompt: "Smoke test: this ask will be cancelled by the agent.",
+    expiresInSeconds: 1800,
+  });
+  const cancelled = await cancelInput(accessToken, toCancel.id);
+  if (cancelled.state !== "CANCELLED") fail(`cancel left input ${cancelled.state}, expected CANCELLED`);
+  const lateAnswer = await api(`/api/inputs/${toCancel.id}/answer`, {
+    method: "POST",
+    headers: { ...session, "content-type": "application/json" },
+    body: JSON.stringify({ text: "too late" }),
+  });
+  if (lateAnswer.status !== 409) fail(`answering a cancelled input returned ${lateAnswer.status}, expected 409`);
+  ok(`cancel: input ${toCancel.id} CANCELLED, late answer correctly rejected (409)`);
+
+  // Confidentiality guard (codex finding): a generic input must not fan out to
+  // every verified destination — only match-all EMAIL forwarding rules. Confirm
+  // the agent's own list surface sees exactly the inputs we created.
+  const listed = await apiJson("/api/inputs", { headers: { authorization: `Bearer ${accessToken}` } });
+  const answeredCount = listed.filter((entry) => entry.state === "ANSWERED").length;
+  const cancelledCount = listed.filter((entry) => entry.state === "CANCELLED").length;
+  if (answeredCount < 3) fail(`agent input list shows ${answeredCount} ANSWERED, expected >= 3`);
+  if (cancelledCount < 1) fail(`agent input list shows ${cancelledCount} CANCELLED, expected >= 1`);
+  ok(`agent list surface reports ${answeredCount} answered + ${cancelledCount} cancelled input(s)`);
+}
+
 function summary(lines) {
   console.log(`\n──────────────────────────────────────────────`);
   console.log(`✔ SMOKE TEST PASSED (${Math.round((Date.now() - startedAt) / 1000)}s)`);
@@ -475,11 +642,15 @@ async function auto() {
   if (!observed.receipt) fail("approved approval has no receipt");
   ok("agent sees APPROVED with a signed receipt");
 
+  await runInputsLeg(session, token.access_token, signup.user.id);
+
   summary([
     `origin: ${options.origin}`,
     `throwaway account: ${email} (workspace ${signup.workspace.id})`,
     `default email channel: ${defaultChannel.id} (born verified)`,
     `approval: ${approval.id} → APPROVED, receipt issued`,
+    "inputs: text + select + confirmation → ANSWERED, attestations verified against JWKS",
+    "inputs: cancel path CANCELLED, late answer rejected (409)",
     "note: the pending-approval email was queued to the dummy address and will bounce; pass --email for a real inbox",
   ]);
 }

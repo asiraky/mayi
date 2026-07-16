@@ -1,6 +1,5 @@
 export {
   mayiChannel,
-  UnsupportedMayiInputError,
   type MayiChannelConfig,
   type MayiChannelState,
   type MayiReceiveTarget,

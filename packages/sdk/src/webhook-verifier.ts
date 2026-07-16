@@ -1,10 +1,10 @@
 import {
-  ApprovalResolvedEvent as ApprovalResolvedEventSchema,
   CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+  WebhookEvent as WebhookEventSchema,
   canonicalize,
 } from "@mayi/contracts";
 import { compactVerify, decodeProtectedHeader, importJWK, type JWK } from "jose";
-import type { ApprovalResolvedEvent } from "./public-contracts";
+import type { WebhookEvent } from "./public-contracts";
 
 export const MAYI_JWKS_PATH = "/.well-known/jwks.json";
 export const MAYI_SIGNATURE_HEADER = "x-mayi-signature";
@@ -44,7 +44,7 @@ export interface VerifyWebhookInput {
 }
 
 export type WebhookVerificationResult =
-  | { duplicate: false; event: ApprovalResolvedEvent }
+  | { duplicate: false; event: WebhookEvent }
   | { duplicate: true; eventId: string };
 
 export interface WebhookVerifier {
@@ -440,7 +440,7 @@ export function createWebhookVerifier(options: WebhookVerifierOptions): WebhookV
         throw new WebhookVerificationError("INVALID_BODY");
       }
       if (!equalBytes(signedPayload, canonicalBody)) throw new WebhookVerificationError("BODY_MISMATCH");
-      const parsed = ApprovalResolvedEventSchema.safeParse(rawEvent);
+      const parsed = WebhookEventSchema.safeParse(rawEvent);
       if (!parsed.success) throw new WebhookVerificationError("INVALID_EVENT");
 
       const currentTime = now();
