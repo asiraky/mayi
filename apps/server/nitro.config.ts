@@ -16,6 +16,9 @@ export default defineNitroConfig({
   preset,
   compatibilityDate: "2026-07-14",
   srcDir: "server",
+  // @mayi/email templates are TSX; esbuild's default is the classic transform,
+  // which would demand a React import in every template file.
+  esbuild: { options: { jsx: "automatic" } },
   // Vercel consumes Build Output API artefacts from the repository root.
   ...(preset === "vercel" ? { output: { dir: fileURLToPath(new URL("../../.vercel/output", import.meta.url)) } } : {}),
   publicAssets: [{ dir: fileURLToPath(new URL("../web/dist", import.meta.url)), maxAge: 3600 }],

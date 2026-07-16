@@ -9,6 +9,7 @@ SESSION_COOKIE_SECURE = "true"
 RECEIPT_ISSUER = "https://app.mayi.sh"
 RECEIPT_AUDIENCE = "mayi-executor"
 RETENTION_DAYS = "90"
+FROM_EMAIL = "no-reply@zero8.ai"
 OAUTH_REGISTRATION_TRUSTED_IP_HEADER = "cf-connecting-ip"
 AUTH_TRUSTED_IP_HEADER = "cf-connecting-ip"
 

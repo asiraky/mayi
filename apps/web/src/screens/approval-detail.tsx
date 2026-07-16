@@ -1,7 +1,7 @@
 import { actionName, isToolCallAction, type Approval } from "@mayi/contracts";
 import { MayiHttpError, type MayiClient } from "@mayiapp/sdk";
-import { ArrowLeft, FileText } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Check, FileText, X } from "lucide-react";
+import { useEffect, useReducer, useState } from "react";
 import { StateBadge } from "~/components/state-badge";
 import { Button } from "~/components/ui/button";
 import { Label } from "~/components/ui/label";
@@ -13,6 +13,10 @@ import { fileSize, relativeTime } from "~/lib/format";
  * its arguments, the digests, the receipt — and Suisse is a person talking. The
  * agent's explanation is the one field it writes freely, so it is set as prose; every
  * value rendered *from* the request stays in mono.
+ *
+ * The screen is laid out for the phone that opened it from a notification: the
+ * decision bar stays pinned to the bottom of the viewport, so "read, scroll, approve"
+ * never requires hunting for the buttons.
  */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -40,6 +44,15 @@ export function ApprovalDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const pending = item.state === "PENDING";
+
+  // The expiry line is a countdown; let it count. A 30s pulse is enough for the
+  // minute-level phrasing relativeTime produces.
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(tick, 30_000);
+    return () => clearInterval(timer);
+  }, [pending]);
 
   async function decide(decision: "APPROVED" | "DENIED") {
     setBusy(true);
@@ -71,133 +84,157 @@ export function ApprovalDetail({
   }
 
   return (
-    <div className="mx-auto w-[min(760px,100%-3rem)] py-10">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        Inbox
-      </button>
+    <div className="flex min-h-screen flex-col">
+      <div className="mx-auto w-[min(760px,100%-2.5rem)] flex-1 pt-6 pb-10 sm:pt-10">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" />
+          Inbox
+        </button>
 
-      <div className="mt-6 flex items-start justify-between gap-6">
-        <h1 className="font-mono text-[clamp(1.4rem,3vw,1.9rem)] leading-tight font-medium tracking-[-0.01em]">
-          {actionName(item.action)}
-        </h1>
-        <StateBadge state={item.state} className="mt-1" />
-      </div>
+        <div className="mt-6 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <h1 className="font-mono text-[clamp(1.35rem,4.5vw,1.9rem)] leading-tight font-medium tracking-[-0.01em] break-words">
+            {actionName(item.action)}
+          </h1>
+          <StateBadge state={item.state} className="mt-1" />
+        </div>
 
-      <p className="mt-4 max-w-[58ch] text-[16px] leading-[1.6] text-body">{item.explanation}</p>
-      <p className="mt-3 text-[13px] text-muted-foreground">
-        {pending ? `Expires ${relativeTime(item.expiresAt)}` : item.decidedAt ? `Decided ${relativeTime(item.decidedAt)}` : null}
-      </p>
+        <p className="mt-4 max-w-[58ch] text-[16px] leading-[1.6] text-body">{item.explanation}</p>
+        <p className="mt-3 text-[13px] text-muted-foreground">
+          {pending
+            ? `Expires ${relativeTime(item.expiresAt)}`
+            : item.decidedAt
+              ? `Decided ${relativeTime(item.decidedAt)}`
+              : null}
+        </p>
 
-      <section className="mt-10">
-        <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The exact action</h2>
-        <dl className="mt-4 grid grid-cols-[minmax(90px,auto)_1fr] gap-x-6 divide-y divide-border border-y border-border">
-          <Field label="kind">{item.action.kind}</Field>
-          {isToolCallAction(item.action) ? (
-            <>
-              <Field label="tool">{item.action.toolName}</Field>
-              <Field label="call ID">{item.action.callId}</Field>
-            </>
-          ) : (
-            <>
-              <Field label="version">{item.action.version}</Field>
-              <Field label="audience">{item.action.audience}</Field>
-              {item.action.resourceVersion && <Field label="resource">{item.action.resourceVersion}</Field>}
-            </>
-          )}
-          <Field label="enforcement">{item.enforcement}</Field>
-          {item.actionDigest && <Field label="digest">{item.actionDigest}</Field>}
-        </dl>
-
-        <pre className="mt-4 overflow-x-auto rounded-lg border border-border bg-muted p-4 font-mono text-[12px] leading-[1.75]">
-          {JSON.stringify(item.action.input, null, 2)}
-        </pre>
-      </section>
-
-      <section className="mt-10">
-        <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">
-          Evidence ({item.artefacts.length})
-        </h2>
-        {item.artefacts.length ? (
-          <ul className="mt-4 grid gap-2">
-            {item.artefacts.map((file) => (
-              <li key={file.id}>
-                <a
-                  href={`/api/approvals/${item.id}/artefacts/${file.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-foreground/25"
-                >
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px]">{file.filename}</span>
-                    {/* The hash is the point: it is what the receipt binds to. */}
-                    <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                      {file.mediaType} · {fileSize(file.size)} · {file.sha256.slice(0, 16)}…
-                    </span>
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-4 text-[14px] text-muted-foreground">No evidence attached.</p>
-        )}
-      </section>
-
-      {item.decisionComment && (
         <section className="mt-10">
-          <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Your comment</h2>
-          <blockquote className="mt-4 border-l-2 border-primary/40 pl-4 text-[15px] leading-[1.6] text-body">
-            {item.decisionComment}
-          </blockquote>
-        </section>
-      )}
+          <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The exact action</h2>
+          <dl className="mt-4 grid grid-cols-[minmax(90px,auto)_1fr] gap-x-6 divide-y divide-border border-y border-border">
+            <Field label="kind">{item.action.kind}</Field>
+            {isToolCallAction(item.action) ? (
+              <>
+                <Field label="tool">{item.action.toolName}</Field>
+                <Field label="call ID">{item.action.callId}</Field>
+              </>
+            ) : (
+              <>
+                <Field label="version">{item.action.version}</Field>
+                <Field label="audience">{item.action.audience}</Field>
+                {item.action.resourceVersion && <Field label="resource">{item.action.resourceVersion}</Field>}
+              </>
+            )}
+            <Field label="enforcement">{item.enforcement}</Field>
+            {item.actionDigest && <Field label="digest">{item.actionDigest}</Field>}
+          </dl>
 
-      {pending && (
-        <section className="mt-10 border-t border-border pt-8">
-          <div className="grid gap-2">
-            <Label htmlFor="comment">Comment (optional)</Label>
-            <Textarea
-              id="comment"
-              value={comment}
-              onChange={(event) => setComment(event.target.value)}
-              maxLength={4000}
-              className="min-h-[90px]"
-              placeholder="Why you are answering the way you are."
-            />
-          </div>
-
-          {error && (
-            <p role="alert" aria-live="polite" className="mt-3 text-[13px] text-destructive">
-              {error}
-            </p>
-          )}
-
-          <div className="mt-4 flex justify-end gap-3">
-            <Button variant="outline" disabled={busy} onClick={() => decide("DENIED")}>
-              Deny
-            </Button>
-            <Button disabled={busy} onClick={() => decide("APPROVED")}>
-              Approve
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {item.receipt && (
-        <section className="mt-10">
-          <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Signed receipt</h2>
-          <p className="mt-3 max-w-[58ch] text-[14px] leading-[1.6] text-body">
-            Hand this to whatever performs the action. It verifies against exactly what you reviewed.
-          </p>
-          <pre className="mt-4 max-h-40 overflow-auto rounded-lg border border-border bg-muted p-4 font-mono text-[11px] leading-[1.7] break-all whitespace-pre-wrap">
-            {item.receipt}
+          <pre className="mt-4 overflow-x-auto rounded-lg border border-border bg-muted p-4 font-mono text-[12px] leading-[1.75]">
+            {JSON.stringify(item.action.input, null, 2)}
           </pre>
         </section>
+
+        <section className="mt-10">
+          <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">
+            Evidence ({item.artefacts.length})
+          </h2>
+          {item.artefacts.length ? (
+            <ul className="mt-4 grid gap-2">
+              {item.artefacts.map((file) => (
+                <li key={file.id}>
+                  <a
+                    href={`/api/approvals/${item.id}/artefacts/${file.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-foreground/25"
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px]">{file.filename}</span>
+                      {/* The hash is the point: it is what the receipt binds to. */}
+                      <span className="block truncate font-mono text-[11px] text-muted-foreground">
+                        {file.mediaType} · {fileSize(file.size)} · {file.sha256.slice(0, 16)}…
+                      </span>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-[14px] text-muted-foreground">No evidence attached.</p>
+          )}
+        </section>
+
+        {item.decisionComment && (
+          <section className="mt-10">
+            <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Your comment</h2>
+            <blockquote className="mt-4 border-l-2 border-primary/40 pl-4 text-[15px] leading-[1.6] text-body">
+              {item.decisionComment}
+            </blockquote>
+          </section>
+        )}
+
+        {pending && (
+          <section className="mt-10">
+            <div className="grid gap-2">
+              <Label htmlFor="comment">Comment (optional)</Label>
+              <Textarea
+                id="comment"
+                value={comment}
+                onChange={(event) => setComment(event.target.value)}
+                maxLength={4000}
+                className="min-h-[90px]"
+                placeholder="Why you are answering the way you are."
+              />
+            </div>
+          </section>
+        )}
+
+        {item.receipt && (
+          <section className="mt-10">
+            <h2 className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Signed receipt</h2>
+            <p className="mt-3 max-w-[58ch] text-[14px] leading-[1.6] text-body">
+              Hand this to whatever performs the action. It verifies against exactly what you reviewed.
+            </p>
+            <pre className="mt-4 max-h-40 overflow-auto rounded-lg border border-border bg-muted p-4 font-mono text-[11px] leading-[1.7] break-all whitespace-pre-wrap">
+              {item.receipt}
+            </pre>
+          </section>
+        )}
+      </div>
+
+      {pending && (
+        <div className="sticky bottom-0 border-t border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <div className="mx-auto w-[min(760px,100%-2.5rem)] py-4">
+            {error && (
+              <p role="alert" aria-live="polite" className="mb-3 text-[13px] text-destructive">
+                {error}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                size="lg"
+                disabled={busy}
+                onClick={() => decide("DENIED")}
+                className="h-11 flex-1 text-[15px] text-destructive hover:bg-destructive/8 hover:text-destructive sm:flex-none sm:px-8"
+              >
+                <X className="size-4" />
+                Deny
+              </Button>
+              <Button
+                size="lg"
+                disabled={busy}
+                onClick={() => decide("APPROVED")}
+                className="h-11 flex-1 text-[15px] sm:flex-none sm:px-10"
+              >
+                <Check className="size-4" />
+                {busy ? "Deciding…" : "Approve"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -40,29 +40,38 @@ function Row({ children, onClick }: { children: React.ReactNode; onClick?: () =>
   );
 }
 
+/** The URL is the source of truth for which approval is open — an email or push
+ *  notification deep-links straight to ?approval=<id>. */
+function linkedApproval(): string | undefined {
+  return new URLSearchParams(location.search).get("approval") ?? undefined;
+}
+
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>();
-  const [items, setItems] = useState<Approval[]>([]);
-  const [selected, setSelected] = useState<string>();
+  const [items, setItems] = useState<Approval[]>();
+  const [selected, setSelected] = useState<string | undefined>(linkedApproval);
   const [tab, setTab] = useState<Tab>("inbox");
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
   const [secret, setSecret] = useState("");
 
   const load = useCallback(async () => {
-    const values = await api.listApprovals();
-    setItems(values);
+    setItems(await api.listApprovals());
+  }, []);
 
-    // A notification deep-links to ?approval=<id>; open it if it is really ours.
-    const linked = new URLSearchParams(location.search).get("approval");
-    setSelected((current) => {
-      if (linked && values.some((x) => x.id === linked)) return linked;
-      return current && values.some((x) => x.id === current) ? current : undefined;
-    });
+  const open = useCallback((id: string | undefined) => {
+    const url = new URL(location.href);
+    if (id) url.searchParams.set("approval", id);
+    else url.searchParams.delete("approval");
+    history.pushState(null, "", url);
+    setSelected(id);
   }, []);
 
   useEffect(() => {
     api.session().then(setSession).catch(() => setSession(null));
+    const onPop = () => setSelected(linkedApproval());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   useEffect(() => {
@@ -87,6 +96,12 @@ export function App() {
     );
   }
 
+  // A deep link lands before the list has loaded; hold the blank state rather than
+  // flashing the inbox under someone who was sent straight to one request.
+  if (!items) {
+    return <div className="grid min-h-screen place-items-center text-[14px] text-muted-foreground">Loading…</div>;
+  }
+
   const current = items.find((item) => item.id === selected);
   if (current) {
     return (
@@ -94,7 +109,7 @@ export function App() {
         item={current}
         email={session.user.email}
         api={api}
-        onBack={() => setSelected(undefined)}
+        onBack={() => open(undefined)}
         onRefresh={load}
       />
     );
@@ -166,7 +181,7 @@ export function App() {
               <div className="mt-6 grid gap-2">
                 {listed.length ? (
                   listed.map((item) => (
-                    <Row key={item.id} onClick={() => setSelected(item.id)}>
+                    <Row key={item.id} onClick={() => open(item.id)}>
                       <span className="grid min-w-0 gap-1">
                         {/* The action is machine data; the agent's explanation is not. */}
                         <span className="truncate font-mono text-[14px] font-medium">{actionName(item.action)}</span>
