@@ -1,5 +1,6 @@
 import type { Session } from "@mayi/contracts";
 import { useState } from "react";
+import { ReceiptMark } from "~/components/receipt-mark";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -35,7 +36,10 @@ export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Sessi
       </div>
 
       <div className="w-full max-w-[380px]">
-        <h1 className="text-[28px] leading-tight font-semibold tracking-[-0.01em]">May I?</h1>
+        <h1 className="flex items-center gap-3 text-[28px] leading-tight font-semibold tracking-[-0.01em]">
+          <ReceiptMark className="h-8 w-8" />
+          May I?
+        </h1>
         <p className="mt-2 text-[15px] leading-[1.6] text-body">
           {signup ? "A workspace holds the requests your agents raise, and the receipts you sign." : "Review the exact action before an agent takes it."}
         </p>
