@@ -49,6 +49,7 @@ function linkedApproval(): string | undefined {
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>();
   const [items, setItems] = useState<Approval[]>();
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<string | undefined>(linkedApproval);
   const [tab, setTab] = useState<Tab>("inbox");
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
@@ -56,7 +57,12 @@ export function App() {
   const [secret, setSecret] = useState("");
 
   const load = useCallback(async () => {
-    setItems(await api.listApprovals());
+    try {
+      setItems(await api.listApprovals());
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    }
   }, []);
 
   const open = useCallback((id: string | undefined) => {
@@ -75,7 +81,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (session) void load();
+    if (!session) return;
+    // A signed-in user can land here mid-OAuth (the consent flow parks its return
+    // URL in the query string); resume it instead of showing the inbox.
+    const returnTo = new URLSearchParams(location.search).get("returnTo");
+    if (returnTo?.startsWith("/api/oauth/authorize?")) {
+      location.assign(returnTo);
+      return;
+    }
+    void load();
   }, [session, load]);
 
   if (session === undefined) {
@@ -99,7 +113,20 @@ export function App() {
   // A deep link lands before the list has loaded; hold the blank state rather than
   // flashing the inbox under someone who was sent straight to one request.
   if (!items) {
-    return <div className="grid min-h-screen place-items-center text-[14px] text-muted-foreground">Loading…</div>;
+    return (
+      <div className="grid min-h-screen place-items-center">
+        {loadError ? (
+          <div className="grid gap-3 text-center text-[14px] text-muted-foreground">
+            <p>Your approvals could not be loaded.</p>
+            <Button variant="outline" onClick={() => void load()}>
+              Try again
+            </Button>
+          </div>
+        ) : (
+          <span className="text-[14px] text-muted-foreground">Loading…</span>
+        )}
+      </div>
+    );
   }
 
   const current = items.find((item) => item.id === selected);

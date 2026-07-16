@@ -11,7 +11,15 @@ export default defineEventHandler(async (event) => {
   const challenge = String(query.code_challenge ?? "");
   const scope = String(query.scope ?? "approval:create approval:read approval:cancel");
   if (query.response_type !== "code" || query.code_challenge_method !== "S256" || !challenge) throw createError({ statusCode: 400, statusMessage: "Authorization code with PKCE S256 is required" });
-  try { await requireUser(event); } catch { return sendRedirect(event, `/?signin=1&returnTo=${encodeURIComponent(event.node.req.url ?? event.path)}`); }
+  try {
+    await requireUser(event);
+  } catch (error) {
+    // Only a missing/expired session means "go sign in"; a server failure must
+    // surface instead of bouncing the user to a sign-in page they can't use.
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode !== 401 && statusCode !== 403) throw error;
+    return sendRedirect(event, `/?signin=1&returnTo=${encodeURIComponent(event.node.req.url ?? event.path)}`);
+  }
   const clients = await database().sql`select name, redirect_uris from oauth_clients where id = ${clientId}`;
   const client = clients[0];
   if (!client || !(client.redirect_uris as string[]).includes(redirectUri)) throw createError({ statusCode: 400, statusMessage: "Client or redirect URI is not registered" });
