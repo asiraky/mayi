@@ -36,7 +36,7 @@
     "db:generate": "dotenv -e .env -- pnpm --filter @mayi/db generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @mayi/db migrate",
     "db:seed": "dotenv -e .env -- pnpm --filter @mayi/db seed",
-    "deploy:site": "pnpm --filter @mayi/site build && wrangler deploy --config apps/site/wrangler.jsonc",
+    "deploy:site": "node ./scripts/preflight-site-deploy.mjs && pnpm --filter @mayi/site build && wrangler deploy --config apps/site/wrangler.jsonc",
     "lint": "eslint .",
     "release": "node ./scripts/release-packages.mjs",
     "release:dry-run": "node ./scripts/release-packages.mjs --dry-run",
