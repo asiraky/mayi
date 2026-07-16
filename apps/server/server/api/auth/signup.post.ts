@@ -6,6 +6,7 @@ import { createSession, audit } from "../../utils/auth";
 import { getConfig } from "../../utils/config";
 import { passwordHash, timingSafeEqual } from "../../utils/crypto";
 import { authenticationClientAddress, recordAuthenticationAttempt } from "../../utils/auth-rate-limit";
+import { createDefaultEmailChannel } from "../../utils/default-notification-channel";
 
 export default defineEventHandler(async (event) => {
   const input = await bodyAs(event, Signup);
@@ -29,6 +30,7 @@ export default defineEventHandler(async (event) => {
       insert into workspaces (id, name, retention_days) values (${workspaceId}, ${`${input.displayName}'s workspace`}, ${config.retentionDays}) returning id, name
     `;
     await sql`insert into memberships (workspace_id, user_id, role) values (${workspace!.id}, ${user!.id}, 'OWNER')`;
+    await createDefaultEmailChannel(sql, { workspaceId: String(workspace!.id), userId: String(user!.id), email: input.email });
     await audit({ workspaceId: String(workspace!.id), actorType: "user", actorId: String(user!.id), eventType: "workspace.created", subjectType: "workspace", subjectId: String(workspace!.id) }, sql);
     return { userId: String(user!.id), workspaceId: String(workspace!.id), workspaceName: String(workspace!.name) };
   });
