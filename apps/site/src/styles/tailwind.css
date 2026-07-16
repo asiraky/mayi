@@ -108,6 +108,55 @@
   }
 }
 
+/* The hero heading carries the brand indigo as a slow sweep through the ink.
+   Solid foreground is the fallback wherever background-clip:text is missing, and
+   the accent stop is chosen per scheme: the raw brand blue reads as ink on paper,
+   but on charcoal it needs the lifted periwinkle to stay legible. */
+@layer components {
+  .hero-gradient-text {
+    --hero-ink: var(--foreground);
+    --hero-accent: #3d2fd6;
+    --hero-accent-deep: #2a1fb0;
+    color: var(--hero-ink);
+  }
+
+  .dark .hero-gradient-text {
+    --hero-accent: #8f86ff;
+    --hero-accent-deep: #6a5fff;
+  }
+
+  @supports ((background-clip: text) or (-webkit-background-clip: text)) {
+    .hero-gradient-text {
+      background-image: linear-gradient(
+        100deg,
+        var(--hero-ink) 0%,
+        var(--hero-ink) 32%,
+        var(--hero-accent) 50%,
+        var(--hero-accent-deep) 58%,
+        var(--hero-ink) 78%,
+        var(--hero-ink) 100%
+      );
+      background-size: 220% 100%;
+      background-position: 0% 50%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      animation: hero-sweep 9s ease-in-out infinite alternate;
+    }
+  }
+}
+
+/* A slow tide across the heading, not a shimmer. */
+@keyframes hero-sweep {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

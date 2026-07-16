@@ -206,7 +206,9 @@ export function ApprovalDetail({
 
       {pending && (
         <div className="sticky bottom-0 border-t border-border bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-          <div className="mx-auto w-[min(760px,100%-2.5rem)] py-4">
+          {/* The bottom padding clears the home indicator on notched phones; the
+              viewport is set to viewport-fit=cover so the inset variable is live. */}
+          <div className="mx-auto w-[min(760px,100%-2.5rem)] pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
             {error && (
               <p role="alert" aria-live="polite" className="mb-3 text-[13px] text-destructive">
                 {error}

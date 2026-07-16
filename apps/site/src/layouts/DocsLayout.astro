@@ -11,7 +11,7 @@ const { entry, entries } = Astro.props;
 ---
 
 <BaseLayout title={`${entry.data.title} | May I?`} description={entry.data.description}>
-  <div class="mx-auto grid w-[min(980px,100%-3rem)] gap-0 pt-12 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-14">
+  <div class="mx-auto grid w-[min(980px,100%-3rem)] grid-cols-1 gap-0 pt-12 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-14">
     <aside class="border-b border-border pb-6 lg:border-0 lg:pt-2 lg:pb-0">
       <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Documentation</p>
       <nav
@@ -37,7 +37,7 @@ const { entry, entries } = Astro.props;
       </nav>
     </aside>
 
-    <article class="prose min-h-[70vh] pt-10 pb-[12vh] lg:pt-2">
+    <article class="prose min-h-[70vh] min-w-0 max-w-full pt-10 pb-[12vh] lg:pt-2">
       <h1 class="max-w-[18ch] text-[clamp(2rem,4.6vw,3.2rem)] leading-[1.02] font-semibold text-foreground">
         {entry.data.title}
       </h1>
