@@ -69,7 +69,8 @@ try {
   await mkdir(inspectDirectory);
   run("tar", ["-xzf", eveArchive, "-C", inspectDirectory]);
   const packedPackage = JSON.parse(await readFile(join(inspectDirectory, "package/package.json"), "utf8"));
-  assert.deepEqual(packedPackage.dependencies, { "@mayiapp/sdk": "^0.1.0" });
+  const sdkManifest = JSON.parse(await readFile(join(repositoryRoot, "packages/sdk/package.json"), "utf8"));
+  assert.deepEqual(packedPackage.dependencies, { "@mayiapp/sdk": `^${sdkManifest.version}` });
   assert.deepEqual(packedPackage.peerDependencies, { eve: "0.24.2" });
   assert.equal(packedPackage.repository.url, "https://github.com/asiraky/mayi");
   assert.equal(packedPackage.publishConfig.access, "public");
