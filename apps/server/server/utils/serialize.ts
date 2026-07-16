@@ -1,4 +1,4 @@
-import { Action, type Artefact } from "@mayi/contracts";
+import { Action, InputAnswer, InputOption, type Artefact, type InputState, type InputType } from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
 import { database } from "./runtime";
 
@@ -32,5 +32,29 @@ export async function serializeApproval(
     expiresAt: new Date(String(row.expires_at)).toISOString(), decidedAt: row.decided_at ? new Date(String(row.decided_at)).toISOString() : null,
     decisionComment: row.decision_comment, approverId: row.approver_id ? String(row.approver_id) : null,
     ...(row.compact_jws ? { receipt: String(row.compact_jws) } : {}),
+  };
+}
+
+export async function serializeInput(
+  workspaceId: string,
+  inputId: string,
+  sql: DatabaseSql = database().sql,
+) {
+  const rows = await sql`
+    select * from inputs where workspace_id = ${workspaceId} and id = ${inputId} limit 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id), type: row.type as InputType, prompt: String(row.prompt),
+    options: row.options === null ? null : InputOption.array().parse(row.options),
+    allowFreeform: Boolean(row.allow_freeform), state: row.state as InputState,
+    answer: row.answer === null ? null : InputAnswer.parse(row.answer),
+    attestation: row.attestation === null ? null : String(row.attestation),
+    respondentId: row.respondent_id === null ? null : String(row.respondent_id),
+    agentId: String(row.agent_id),
+    createdAt: new Date(String(row.created_at)).toISOString(), expiresAt: new Date(String(row.expires_at)).toISOString(),
+    answeredAt: row.answered_at ? new Date(String(row.answered_at)).toISOString() : null,
+    cancelledAt: row.cancelled_at ? new Date(String(row.cancelled_at)).toISOString() : null,
   };
 }

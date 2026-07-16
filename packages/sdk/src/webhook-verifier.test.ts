@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { canonicalize, type ApprovalResolvedEvent } from "@mayi/contracts";
+import { canonicalize, type ApprovalResolvedEvent, type InputResolvedEvent } from "@mayi/contracts";
 import { CompactSign, exportJWK, generateKeyPair, type JWK } from "jose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -22,6 +22,19 @@ const baseEvent: ApprovalResolvedEvent = {
   status: "approved",
   approver: { id: "ApproverABCD" },
   receipt: "opaque-receipt",
+};
+
+const answeredInputEvent: InputResolvedEvent = {
+  id: "EventInputAB",
+  type: "input.resolved",
+  version: 1,
+  inputId: "InputABCDEFG",
+  state: "opaque-callback-state",
+  occurredAt: new Date(now - 1_000).toISOString(),
+  status: "answered",
+  respondent: { id: "ApproverABCD", email: "approver@example.com" },
+  answer: { optionId: "staging" },
+  attestation: "opaque-attestation",
 };
 
 interface SigningFixture {
@@ -119,6 +132,37 @@ describe("webhook verifier", () => {
       event: baseEvent,
     });
     expect(jwksRequests).toBe(1);
+  });
+
+  it("verifies signed input.resolved events and returns the typed union event", async () => {
+    const verifier = createWebhookVerifier(options());
+
+    await expect(verifier.verify({
+      body: JSON.stringify(answeredInputEvent),
+      signature: await sign(answeredInputEvent),
+    })).resolves.toEqual({ duplicate: false, event: answeredInputEvent });
+
+    const expiredInputEvent: InputResolvedEvent = {
+      id: "EventInputCD",
+      type: "input.resolved",
+      version: 1,
+      inputId: answeredInputEvent.inputId,
+      state: answeredInputEvent.state,
+      occurredAt: answeredInputEvent.occurredAt,
+      status: "expired",
+    };
+    await expect(verifier.verify({
+      body: JSON.stringify(expiredInputEvent),
+      signature: await sign(expiredInputEvent),
+    })).resolves.toEqual({ duplicate: false, event: expiredInputEvent });
+  });
+
+  it("rejects signed schema-invalid input events", async () => {
+    const verifier = createWebhookVerifier(options());
+    const invalid = { ...answeredInputEvent, answer: {} };
+
+    await expect(verifier.verify({ body: JSON.stringify(invalid), signature: await sign(invalid) }))
+      .rejects.toEqual(code("INVALID_EVENT"));
   });
 
   it("canonicalizes the raw JSON body with the contracts helper before exact byte comparison", async () => {

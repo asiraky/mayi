@@ -59,6 +59,59 @@ compact EdDSA JWS against the raw canonical body with `@mayiapp/sdk`, and return
 2xx status for both first acceptance and duplicate acceptance. Mayi stores and
 echoes `state` unchanged and never parses or logs it.
 
+## Inputs (generic human input)
+
+Questions with no action to enforce — freeform text, a pick from a list, a
+plain confirmation — use `POST /api/inputs` with an `Idempotency-Key`. The body
+carries `type` (`"text"`, `"select"`, or `"confirmation"`), `prompt`, `options`
+(required for select and confirmation; 1–20 options for select, exactly 2 for
+confirmation, each `{ id, label, description?, style? }` with unique ids),
+`allowFreeform` (select only), `expiresInSeconds` (60–604800), an optional
+`suggestedApproverId`, and an optional `callback` `{ url, state }`. Text
+questions take no options. Agents reuse the approval scopes — `approval:create`
+to create, `approval:cancel` to cancel — with no separate input scopes.
+
+`GET /api/inputs/:id` and `GET /api/inputs?state=` mirror the approval
+resources. `POST /api/inputs/:id/answer` is the app-side endpoint an eligible
+respondent answers through with `{ optionId }` and/or `{ text }`; the server
+requires `optionId` to name a listed option and accepts `text` only where the
+type or `allowFreeform` allows it. `POST /api/inputs/:id/cancel` is agent-side.
+States are `PENDING`, `ANSWERED`, `EXPIRED`, and `CANCELLED`.
+
+The callback is optional. When present it follows the approval callback rules
+exactly — registered `approval_callback_uris`, the public-HTTPS policy, opaque
+`state` echoed unchanged — and resolution activates the same signed outbox with
+the same retry and replay behaviour. Agents that omit it poll
+`GET /api/inputs/:id` instead. The version 1 event:
+
+```json
+{
+  "id": "AbCdEfGhIjKl",
+  "type": "input.resolved",
+  "version": 1,
+  "inputId": "MnOpQrStUvWx",
+  "status": "answered",
+  "state": "<opaque ciphertext>",
+  "occurredAt": "2026-07-15T00:00:00.000Z",
+  "respondent": { "id": "YzAbCdEfGhIj", "email": "dana@example.com" },
+  "answer": { "optionId": "hotfix" },
+  "attestation": "<signed answer attestation>"
+}
+```
+
+`respondent`, `answer`, and `attestation` are present only for
+`status: "answered"`; expired and cancelled events carry the base fields only.
+Delivery is signed with the same `X-Mayi-Signature` EdDSA JWS as
+`approval.resolved` and verifies against `/.well-known/jwks.json`; the
+`@mayiapp/sdk` webhook verifier accepts both event types.
+
+The attestation is a durable Mayi-signed JWT recording who answered, what, and
+when: respondent, input type, prompt digest, the answer and its digest, and the
+answered-at time. It deliberately carries no expiry claim — it is provenance an
+agent can persist and re-verify against the published JWKS at any time, not an
+enforcement token. Enforcement — verify-against-action, consume-once — remains
+approval-only, because only an approval authorises a specific action.
+
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.
 
 Every account starts with two default notification channels: signup creates a

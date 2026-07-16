@@ -1,4 +1,4 @@
-import type { Action, ApprovalState, Artefact } from "@mayi/contracts";
+import type { Action, ApprovalState, Artefact, InputOption, InputType } from "@mayi/contracts";
 import { actionName, canonicalDigest, Id, isToolCallAction } from "@mayi/contracts";
 import { z } from "zod";
 
@@ -56,6 +56,32 @@ export async function freezeDigests(action: Action, artefacts: Artefact[]): Prom
     .sort((a, b) => a.ordinal - b.ordinal)
     .map(({ ordinal, filename, mediaType, size, sha256 }) => ({ ordinal, filename, mediaType, size, sha256 }));
   return { actionDigest: await canonicalDigest(action), manifestDigest: await canonicalDigest(manifest) };
+}
+
+export function validateInputAnswer(
+  input: { type: InputType; options: InputOption[] | null; allowFreeform: boolean },
+  answer: { optionId?: string | undefined; text?: string | undefined },
+): void {
+  const optionIds = (input.options ?? []).map((option) => option.id);
+  if (answer.optionId === undefined && answer.text === undefined) {
+    throw new DomainError("invalid_answer", "An answer requires an optionId or text", 422);
+  }
+  if (input.type === "text") {
+    if (answer.optionId !== undefined) throw new DomainError("invalid_answer", "Text inputs take no optionId", 422);
+    if (answer.text === undefined) throw new DomainError("invalid_answer", "Text inputs require text", 422);
+    return;
+  }
+  if (answer.optionId !== undefined && !optionIds.includes(answer.optionId)) {
+    throw new DomainError("invalid_answer", "The optionId is not one of the offered options", 422);
+  }
+  if (input.type === "confirmation") {
+    if (answer.text !== undefined) throw new DomainError("invalid_answer", "Confirmation inputs take no text", 422);
+    if (answer.optionId === undefined) throw new DomainError("invalid_answer", "Confirmation inputs require an optionId", 422);
+    return;
+  }
+  if (answer.text !== undefined && !input.allowFreeform) {
+    throw new DomainError("invalid_answer", "This select input does not allow freeform text", 422);
+  }
 }
 
 export function validateSuggestedApprover(suggestedId: string | undefined, eligibleIds: string[]): void {

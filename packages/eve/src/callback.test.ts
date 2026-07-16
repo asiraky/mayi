@@ -40,6 +40,19 @@ interface CallbackEvent {
   receipt?: string;
 }
 
+interface InputCallbackEvent {
+  id: string;
+  type: "input.resolved";
+  version: 1;
+  inputId: string;
+  status: "answered" | "expired" | "cancelled";
+  state: string;
+  occurredAt: string;
+  respondent?: { id: string; email: string | null };
+  answer?: { optionId?: string; text?: string };
+  attestation?: string;
+}
+
 let signing: SigningFixture;
 let otherSigning: SigningFixture;
 
@@ -116,8 +129,31 @@ function callbackEvent(state: string, status: TerminalStatus = "approved", overr
   };
 }
 
+function inputCallbackEvent(
+  state: string,
+  status: InputCallbackEvent["status"] = "answered",
+  answer: { optionId?: string; text?: string } = { optionId: "blue" },
+): InputCallbackEvent {
+  return {
+    id: createId(),
+    type: "input.resolved",
+    version: 1,
+    inputId: createId(),
+    status,
+    state,
+    occurredAt: new Date(now).toISOString(),
+    ...(status === "answered"
+      ? {
+        respondent: { id: createId(), email: null },
+        answer,
+        attestation: "fabricated-compact-attestation",
+      }
+      : {}),
+  };
+}
+
 async function callbackRequest(
-  event: CallbackEvent,
+  event: CallbackEvent | InputCallbackEvent,
   options: { body?: string; signature?: string | null } = {},
 ): Promise<Request> {
   const body = options.body ?? canonicalize(event);
@@ -525,5 +561,77 @@ describe("approval-resolved callback", () => {
     } finally {
       vi.restoreAllMocks();
     }
+  });
+});
+
+describe("input-resolved callback", () => {
+  function memoryEventStore() {
+    const processed = new Set<string>();
+    return {
+      isProcessed: vi.fn((eventId: string) => processed.has(eventId)),
+      markProcessed: vi.fn((eventId: string) => { processed.add(eventId); }),
+    } satisfies MayiWebhookEventStore;
+  }
+
+  it.each([
+    ["a chosen option", { optionId: "blue" }],
+    ["freeform text", { text: "Ship it tomorrow at 09:00" }],
+  ] as const)("resumes an answered input with %s and marks only after acceptance", async (_name, answer) => {
+    const codec = await realCodec();
+    const state = await sealedState(codec);
+    const order: string[] = [];
+    const eventStore = memoryEventStore();
+    eventStore.markProcessed.mockImplementation((eventId: string) => { order.push("mark"); void eventId; });
+    const send = vi.fn(async () => { order.push("send"); return acceptedSession(); });
+    const event = inputCallbackEvent(state, "answered", answer);
+
+    const response = await callbackRoute({ callbackStateCodec: codec, eventStore })(
+      await callbackRequest(event),
+      routeArgs(send) as never,
+    );
+
+    expect(response.status).toBe(202);
+    expect(order).toEqual(["send", "mark"]);
+    expect(send).toHaveBeenCalledWith({
+      inputResponses: [{ requestId: "request-original", ...answer }],
+    }, {
+      auth: null,
+      continuationToken: "mayi:original-raw-token",
+      state: { rawContinuationToken: "mayi:original-raw-token", target: null },
+    });
+    expect(eventStore.markProcessed).toHaveBeenCalledWith(event.id);
+  });
+
+  it.each(["expired", "cancelled"] as const)(
+    "acknowledges an %s input without resuming the parked session",
+    async (status) => {
+      const codec = await realCodec();
+      const state = await sealedState(codec);
+      const eventStore = memoryEventStore();
+      const send = vi.fn(async () => acceptedSession());
+      const event = inputCallbackEvent(state, status);
+      const handler = callbackRoute({ callbackStateCodec: codec, eventStore });
+
+      expect((await handler(await callbackRequest(event), routeArgs(send) as never)).status).toBe(208);
+      expect(send).not.toHaveBeenCalled();
+      expect(eventStore.markProcessed).toHaveBeenCalledWith(event.id);
+      expect((await handler(await callbackRequest(event), routeArgs(send) as never)).status).toBe(208);
+      expect(send).not.toHaveBeenCalled();
+      expect(eventStore.markProcessed).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("acknowledges a duplicate answered input without resuming twice", async () => {
+    const codec = await realCodec();
+    const state = await sealedState(codec);
+    const eventStore = memoryEventStore();
+    const send = vi.fn(async () => acceptedSession());
+    const event = inputCallbackEvent(state);
+    const handler = callbackRoute({ callbackStateCodec: codec, eventStore });
+    const args = routeArgs(send);
+
+    expect((await handler(await callbackRequest(event), args as never)).status).toBe(202);
+    expect((await handler(await callbackRequest(event), args as never)).status).toBe(208);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

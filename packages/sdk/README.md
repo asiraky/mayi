@@ -63,6 +63,35 @@ ordinal with changed bytes or metadata is rejected. Staged evidence is claimed
 atomically when the approval becomes pending and expires after 24 hours if it is
 never claimed.
 
+## Asking for input
+
+Approvals decide a specific action. To ask a human an open question instead,
+request an input of type `"text"`, `"select"`, or `"confirmation"`:
+
+```ts
+const question = await mayi.inputs.request({
+  type: "select",
+  prompt: "Which environment should receive this release?",
+  options: [
+    { id: "staging", label: "Staging" },
+    { id: "production", label: "Production", style: "danger" },
+  ],
+  expiresInSeconds: 900,
+  callback: {
+    url: "https://agent.example/eve/v1/mayi/input-resolved",
+    state: sealedCallbackState,
+  },
+}, { idempotencyKey: requestId });
+
+console.log(question.id, question.state); // PENDING
+```
+
+The callback is optional for inputs; pollers may omit it and reconcile with
+`mayi.inputs.get(id)` or `mayi.inputs.list({ state: "PENDING" })`. Agents cancel
+an open question with `mayi.inputs.cancel(id)`. Answered inputs carry a signed
+answer attestation, and the webhook verifier accepts both `approval.resolved`
+and `input.resolved` events — narrow on `event.type` before resuming work.
+
 The OAuth host owns the browser Authorization Code + PKCE flow, stores the
 rotating refresh grant, refreshes it when needed, and supplies a current access
 token. The token provider is called for each authenticated request. The SDK

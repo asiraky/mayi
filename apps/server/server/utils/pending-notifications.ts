@@ -1,4 +1,4 @@
-import { actionName, createId, type Action } from "@mayi/contracts";
+import { actionName, createId, type Action, type InputType } from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
 
 export async function queuePendingNotifications(
@@ -42,6 +42,44 @@ export async function queuePendingNotifications(
           destinationId: String(rule.destination_id),
           deliveryId: String(deliveries[0].id),
         })}::jsonb
+      )
+      on conflict do nothing
+    `;
+  }
+}
+
+/**
+ * Inputs carry no enforced action, so forwarding rules — which gate action names —
+ * do not apply: every verified email destination is told a human is needed. Webhook
+ * forwarding stays approval-only because its payload contract is action-shaped.
+ */
+export async function queueInputNotifications(
+  sql: DatabaseSql,
+  input: { workspaceId: string; inputId: string; type: InputType; prompt: string },
+): Promise<void> {
+  await sql`
+    insert into jobs (id, workspace_id, type, dedupe_key, payload)
+    values (${createId()}, ${input.workspaceId}, 'push.input_pending', ${input.inputId}, ${JSON.stringify({ inputId: input.inputId })}::jsonb)
+    on conflict do nothing
+  `;
+
+  const destinations = await sql`
+    select id from forwarding_destinations
+    where workspace_id = ${input.workspaceId}
+      and type = 'EMAIL'
+      and active
+      and verified_at is not null
+  `;
+
+  for (const destination of destinations) {
+    await sql`
+      insert into jobs (id, workspace_id, type, dedupe_key, payload)
+      values (
+        ${createId()},
+        ${input.workspaceId},
+        'email.input_pending',
+        ${`${input.inputId}:${destination.id}`},
+        ${JSON.stringify({ inputId: input.inputId, destinationId: String(destination.id) })}::jsonb
       )
       on conflict do nothing
     `;

@@ -127,7 +127,7 @@ try {
   console.log(`Resolved jose ${installedJose.version} from the clean install`);
 
   const typeFixture = `
-    import { MayiClient, type PendingApproval } from "@mayiapp/sdk";
+    import { MayiClient, type InputResolvedEvent, type PendingApproval, type PendingInput } from "@mayiapp/sdk";
     import { createCallbackStateCodec, type CallbackStateCodec } from "@mayiapp/sdk/callback-state";
     import { createWebhookVerifier, type WebhookVerifier } from "@mayiapp/sdk/webhook-verifier";
 
@@ -138,6 +138,16 @@ try {
       expiresInSeconds: 300,
       callback: { url: "https://agent.example.com/callback", state: "sealed-state" },
     }, { idempotencyKey: "request-1" });
+    const pendingInput: Promise<PendingInput> = client.inputs.request({
+      type: "select",
+      prompt: "Which environment should receive this release?",
+      options: [
+        { id: "staging", label: "Staging" },
+        { id: "production", label: "Production", style: "danger" },
+      ],
+      expiresInSeconds: 300,
+      callback: { url: "https://agent.example.com/callback", state: "sealed-state" },
+    }, { idempotencyKey: "input-1" });
     const codec: Promise<CallbackStateCodec> = createCallbackStateCodec({
       currentKey: { kid: "current", key: new Uint8Array(32) },
       maximumRetryWindowSeconds: 60,
@@ -146,7 +156,13 @@ try {
       mayiOrigin: "https://mayi.example.com",
       maximumEventAgeSeconds: 300,
     });
-    void [pending, codec, verifier];
+    const narrowInputEvent = async (): Promise<string | undefined> => {
+      const result = await verifier.verify({ body: "{}", signature: "a.b.c" });
+      if (result.duplicate || result.event.type !== "input.resolved") return undefined;
+      const event: InputResolvedEvent = result.event;
+      return event.status === "answered" ? event.answer.optionId ?? event.answer.text : event.status;
+    };
+    void [pending, pendingInput, codec, verifier, narrowInputEvent];
   `;
   await writeFile(join(fixtureDirectory, "types.ts"), typeFixture);
   await writeFile(join(fixtureDirectory, "tsconfig.json"), JSON.stringify({

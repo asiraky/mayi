@@ -1,6 +1,7 @@
-import { actionName, type Approval, type Session } from "@mayi/contracts";
+import type { Approval, ApprovalState, Input as InputItem, InputState, Session } from "@mayi/contracts";
 import { MayiClient } from "@mayiapp/sdk";
 import { useCallback, useEffect, useState } from "react";
+import { ActivityRow } from "~/components/activity-row";
 import { ReceiptMark } from "~/components/receipt-mark";
 import { StateBadge } from "~/components/state-badge";
 import { ThemeToggle } from "~/components/theme-toggle";
@@ -10,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { relativeTime } from "~/lib/format";
 import { ApprovalDetail } from "~/screens/approval-detail";
 import { Auth } from "~/screens/auth";
+import { InputDetail } from "~/screens/input-detail";
 
 const api = new MayiClient({
   origin: location.origin,
@@ -41,17 +43,36 @@ function Row({ children, onClick }: { children: React.ReactNode; onClick?: () =>
   );
 }
 
-/** The URL is the source of truth for which approval is open — an email or push
- *  notification deep-links straight to ?approval=<id>. */
-function linkedApproval(): string | undefined {
-  return new URLSearchParams(location.search).get("approval") ?? undefined;
+/** The URL is the source of truth for which request is open — an email or push
+ *  notification deep-links straight to ?approval=<id> or ?input=<id>. */
+type Selection = { kind: "approval" | "input"; id: string };
+
+function linkedSelection(): Selection | undefined {
+  const params = new URLSearchParams(location.search);
+  const approval = params.get("approval");
+  if (approval) return { kind: "approval", id: approval };
+  const input = params.get("input");
+  if (input) return { kind: "input", id: input };
+  return undefined;
 }
+
+/** Approvals and questions share the inbox, so rows flatten to what a row shows:
+ *  what the agent said, in a person's words — never the action name. */
+type InboxRow = {
+  kind: "approval" | "input";
+  id: string;
+  title: string;
+  state: ApprovalState | InputState;
+  createdAt: string;
+  expiresAt: string;
+};
 
 export function App() {
   const [session, setSession] = useState<Session | null | undefined>();
   const [items, setItems] = useState<Approval[]>();
+  const [inputs, setInputs] = useState<InputItem[]>();
   const [loadError, setLoadError] = useState(false);
-  const [selected, setSelected] = useState<string | undefined>(linkedApproval);
+  const [selected, setSelected] = useState<Selection | undefined>(linkedSelection);
   const [tab, setTab] = useState<Tab>("inbox");
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
@@ -59,24 +80,27 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      setItems(await api.listApprovals());
+      const [approvals, questions] = await Promise.all([api.listApprovals(), api.listInputs()]);
+      setItems(approvals);
+      setInputs(questions);
       setLoadError(false);
     } catch {
       setLoadError(true);
     }
   }, []);
 
-  const open = useCallback((id: string | undefined) => {
+  const open = useCallback((next: Selection | undefined) => {
     const url = new URL(location.href);
-    if (id) url.searchParams.set("approval", id);
-    else url.searchParams.delete("approval");
+    url.searchParams.delete("approval");
+    url.searchParams.delete("input");
+    if (next) url.searchParams.set(next.kind, next.id);
     history.pushState(null, "", url);
-    setSelected(id);
+    setSelected(next);
   }, []);
 
   useEffect(() => {
     api.session().then(setSession).catch(() => setSession(null));
-    const onPop = () => setSelected(linkedApproval());
+    const onPop = () => setSelected(linkedSelection());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -111,14 +135,14 @@ export function App() {
     );
   }
 
-  // A deep link lands before the list has loaded; hold the blank state rather than
+  // A deep link lands before the lists have loaded; hold the blank state rather than
   // flashing the inbox under someone who was sent straight to one request.
-  if (!items) {
+  if (!items || !inputs) {
     return (
       <div className="grid min-h-screen place-items-center">
         {loadError ? (
           <div className="grid gap-3 text-center text-[14px] text-muted-foreground">
-            <p>Your approvals could not be loaded.</p>
+            <p>Your inbox could not be loaded.</p>
             <Button variant="outline" onClick={() => void load()}>
               Try again
             </Button>
@@ -130,17 +154,26 @@ export function App() {
     );
   }
 
-  const current = items.find((item) => item.id === selected);
-  if (current) {
-    return (
-      <ApprovalDetail
-        item={current}
-        email={session.user.email}
-        api={api}
-        onBack={() => open(undefined)}
-        onRefresh={load}
-      />
-    );
+  if (selected?.kind === "approval") {
+    const current = items.find((item) => item.id === selected.id);
+    if (current) {
+      return (
+        <ApprovalDetail
+          item={current}
+          email={session.user.email}
+          api={api}
+          onBack={() => open(undefined)}
+          onRefresh={load}
+        />
+      );
+    }
+  }
+
+  if (selected?.kind === "input") {
+    const current = inputs.find((item) => item.id === selected.id);
+    if (current) {
+      return <InputDetail item={current} api={api} onBack={() => open(undefined)} onRefresh={load} />;
+    }
   }
 
   async function openTab(next: Tab) {
@@ -159,8 +192,35 @@ export function App() {
     form.reset();
   }
 
-  const listed = items.filter((item) =>
-    tab === "inbox" ? item.state === "PENDING" : item.state !== "PENDING" && item.state !== "DRAFT",
+  const rows: InboxRow[] = [
+    ...items
+      .filter((item) => (tab === "inbox" ? item.state === "PENDING" : item.state !== "PENDING" && item.state !== "DRAFT"))
+      .map(
+        (item): InboxRow => ({
+          kind: "approval",
+          id: item.id,
+          title: item.explanation,
+          state: item.state,
+          createdAt: item.createdAt,
+          expiresAt: item.expiresAt,
+        }),
+      ),
+    ...inputs
+      .filter((item) => (tab === "inbox" ? item.state === "PENDING" : item.state !== "PENDING"))
+      .map(
+        (item): InboxRow => ({
+          kind: "input",
+          id: item.id,
+          title: item.prompt,
+          state: item.state,
+          createdAt: item.createdAt,
+          expiresAt: item.expiresAt,
+        }),
+      ),
+  ].sort((a, b) =>
+    // The inbox is a to-do list, so the soonest deadline floats up; history is a
+    // record, so the most recent request leads.
+    tab === "inbox" ? a.expiresAt.localeCompare(b.expiresAt) : b.createdAt.localeCompare(a.createdAt),
   );
 
   return (
@@ -209,27 +269,28 @@ export function App() {
           {(tab === "inbox" || tab === "history") && (
             <>
               <h1 className="text-[24px] font-semibold tracking-[-0.01em]">
-                {tab === "inbox" ? "Pending approvals" : "History"}
+                {tab === "inbox" ? "Waiting on you" : "History"}
               </h1>
               <div className="mt-6 grid gap-2">
-                {listed.length ? (
-                  listed.map((item) => (
-                    <Row key={item.id} onClick={() => open(item.id)}>
+                {rows.length ? (
+                  rows.map((row) => (
+                    <Row key={row.id} onClick={() => open({ kind: row.kind, id: row.id })}>
                       <span className="grid min-w-0 gap-1">
-                        {/* The action is machine data; the agent's explanation is not. */}
-                        <span className="truncate font-mono text-[14px] font-medium">{actionName(item.action)}</span>
-                        <span className="truncate text-[13px] text-muted-foreground">{item.explanation}</span>
+                        <span className="truncate text-[14px] font-medium">{row.title}</span>
+                        <span className="text-[11px] tracking-[0.06em] text-muted-foreground uppercase">
+                          {row.kind === "approval" ? "Approval" : "Question"}
+                        </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-3">
                         <span className="hidden text-[12px] text-muted-foreground sm:block">
-                          {item.state === "PENDING" ? relativeTime(item.expiresAt) : null}
+                          {row.state === "PENDING" ? relativeTime(row.expiresAt) : null}
                         </span>
-                        <StateBadge state={item.state} />
+                        <StateBadge state={row.state} />
                       </span>
                     </Row>
                   ))
                 ) : (
-                  <Empty>{tab === "inbox" ? "Nothing is waiting on you." : "No decisions yet."}</Empty>
+                  <Empty>{tab === "inbox" ? "Nothing is waiting on you." : "Nothing resolved yet."}</Empty>
                 )}
               </div>
             </>
@@ -274,16 +335,7 @@ export function App() {
               <h1 className="text-[24px] font-semibold tracking-[-0.01em]">Security activity</h1>
               <div className="mt-6 grid gap-2">
                 {activity.length ? (
-                  activity.map((entry) => (
-                    <Row key={String(entry.id)}>
-                      <span className="grid min-w-0 gap-1">
-                        <span className="truncate font-mono text-[13px]">{String(entry.eventType)}</span>
-                        <span className="truncate text-[12px] text-muted-foreground">
-                          {relativeTime(String(entry.createdAt))}
-                        </span>
-                      </span>
-                    </Row>
-                  ))
+                  activity.map((entry) => <ActivityRow key={String(entry.id)} entry={entry} />)
                 ) : (
                   <Empty>Nothing recorded yet.</Empty>
                 )}

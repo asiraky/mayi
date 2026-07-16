@@ -8,11 +8,11 @@
 > [!WARNING]
 > May I? is pre-release security infrastructure. Review the threat model and run your own security assessment before production use.
 
-May I? is an approval service for software agents.
+May I? is a human-in-the-loop service for software agents. Wherever an agent hits a question only a person can settle — approve or deny an exact action, pick an option, answer in words — it files the question with May I?, parks, and resumes when the answer arrives. Approvals are the receipt-bearing kind of ask.
 
 Picture a release agent working through a deployment. It has built the image and checked the target, but production is the point where a person should take responsibility. The agent sends May I? the exact release digest, environment, and expected current version. A human reviews that frozen request in the web or mobile app. If they approve it, May I? returns a short-lived signed receipt bound to those details. Change the digest or the target and the receipt no longer matches.
 
-The approval covers only the submitted action. It does not give the agent a general green light.
+The approval covers only the submitted action. It does not give the agent a general green light. And when the question is not an action at all — which build ships, what the release notes should say — the same channel carries it as a generic input, answered by the same person in the same app, resolved as the same kind of signed event.
 
 ## Example
 
@@ -40,6 +40,23 @@ const pending = await mayi.approvals.request({
 }, { idempotencyKey: eveRequestId });
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
+
+A question with no action to enforce goes through the inputs surface on the same client:
+
+```ts
+const pending = await mayi.inputs.request({
+  type: "select",
+  prompt: "Two builds passed CI for the 2.4 release. Which one ships?",
+  options: [
+    { id: "full", label: "Full release" },
+    { id: "hotfix", label: "Hotfix only" },
+  ],
+  expiresInSeconds: 1800,
+  callback: { url: "https://agent.example.com/mayi/callback", state: sealedCallbackState },
+}, { idempotencyKey: requestId });
+```
+
+Inputs follow the same rules as approvals — `PENDING` immediately, caller-supplied idempotency key, signed terminal callback (`input.resolved`) as the normal resume path, polling for reconciliation or agents without a callback. The answer arrives with a durable signed attestation of who answered, what, and when. Inputs reuse the approval scopes and mint no receipt; enforcement stays approval-only.
 
 The `@mayiapp/sdk` workspace package builds a publishable npm tarball containing ESM JavaScript, TypeScript declarations, and source maps. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. A signed terminal callback is the normal resume path; polling remains useful only for reconciliation or fallback. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
 

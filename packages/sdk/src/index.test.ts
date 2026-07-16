@@ -1,4 +1,4 @@
-import type { ApprovalRequest, CreateApproval } from "@mayi/contracts";
+import type { ApprovalRequest, CreateApproval, InputRequest } from "@mayi/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   MayiAuthenticationError,
@@ -43,6 +43,44 @@ const pendingApproval = {
 };
 
 const draftApproval = { ...pendingApproval, state: "DRAFT" as const, sealedAt: null };
+
+const inputRequestInput: InputRequest = {
+  type: "select",
+  prompt: "Which environment should receive this release?",
+  options: [
+    { id: "staging", label: "Staging" },
+    { id: "production", label: "Production", style: "danger" },
+  ],
+  expiresInSeconds: 900,
+  suggestedApproverId: "ApproverAbcd",
+  callback: { url: "https://agent.example/callback", state: "opaque-secret-state" },
+};
+
+const pendingInput = {
+  id: "InputAbcdefg",
+  type: "select" as const,
+  prompt: inputRequestInput.prompt,
+  options: inputRequestInput.options!,
+  allowFreeform: false,
+  state: "PENDING" as const,
+  answer: null,
+  attestation: null,
+  respondentId: null,
+  agentId: "AgentAbcdefg",
+  createdAt: "2026-07-15T00:00:00.000Z",
+  expiresAt: "2026-07-15T00:15:00.000Z",
+  answeredAt: null,
+  cancelledAt: null,
+};
+
+const answeredInput = {
+  ...pendingInput,
+  state: "ANSWERED" as const,
+  answer: { optionId: "staging" },
+  attestation: "opaque-attestation",
+  respondentId: "ApproverAbcd",
+  answeredAt: "2026-07-15T00:05:00.000Z",
+};
 
 function jsonResponse(value: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(value), {
@@ -140,6 +178,140 @@ describe("MayiClient approvals.request", () => {
       .rejects.toBeInstanceOf(MayiConfigurationError);
     expect(getAccessToken).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("MayiClient inputs", () => {
+  it("sends the accepted input contract and returns a pending input", async () => {
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse(pendingInput));
+    const getAccessToken = vi.fn(async () => "oauth-token");
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await expect(client.inputs.request(inputRequestInput, { idempotencyKey: "stable-key" })).resolves.toEqual(pendingInput);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(getAccessToken).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://mayi.example/api/inputs");
+    expect(init?.method).toBe("POST");
+    const { headers, body } = captured(init);
+    expect(headers.get("authorization")).toBe("Bearer oauth-token");
+    expect(init?.credentials).toBe("omit");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.get("idempotency-key")).toBe("stable-key");
+    expect(JSON.parse(body!)).toEqual(inputRequestInput);
+  });
+
+  it.each([
+    ["malformed", { nope: true }],
+    ["answered", answeredInput],
+    ["expired", { ...pendingInput, state: "EXPIRED" }],
+    ["cancelled", { ...pendingInput, state: "CANCELLED", cancelledAt: "2026-07-15T00:05:00.000Z" }],
+  ])("rejects a %s success response", async (_label, responseBody) => {
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      getAccessToken: async () => "token",
+      fetch: async () => jsonResponse(responseBody),
+    });
+
+    await expect(client.inputs.request(inputRequestInput, { idempotencyKey: "stable-key" }))
+      .rejects.toBeInstanceOf(MayiResponseError);
+  });
+
+  it.each(["", "   ", "x".repeat(201)])("validates idempotency key before auth or fetch", async (idempotencyKey) => {
+    const getAccessToken = vi.fn(async () => "token");
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse(pendingInput));
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await expect(client.inputs.request(inputRequestInput, { idempotencyKey }))
+      .rejects.toBeInstanceOf(MayiConfigurationError);
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails the input request safely when the provider is missing", async () => {
+    const fetchMock = vi.fn<MayiFetch>();
+    const client = new MayiClient({ origin: "https://mayi.example", fetch: fetchMock });
+
+    await expect(client.inputs.request(inputRequestInput, { idempotencyKey: "stable-key" })).rejects.toMatchObject({
+      name: "MayiAuthenticationError",
+      code: "ACCESS_TOKEN_PROVIDER_REQUIRED",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured provider for dual-mode input reads", async () => {
+    const responses = [jsonResponse([pendingInput]), jsonResponse(pendingInput)];
+    const fetchMock = vi.fn<MayiFetch>(async () => responses.shift()!);
+    const getAccessToken = vi.fn(async () => "read-token");
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await expect(client.inputs.list({ state: "PENDING" })).resolves.toEqual([pendingInput]);
+    await expect(client.inputs.get("InputAbcdefg")).resolves.toEqual(pendingInput);
+
+    expect(getAccessToken).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://mayi.example/api/inputs?state=PENDING");
+    expect(String(fetchMock.mock.calls[1]![0])).toBe("https://mayi.example/api/inputs/InputAbcdefg");
+    expect(new Headers(fetchMock.mock.calls[0]![1]?.headers).get("authorization")).toBe("Bearer read-token");
+    expect(new Headers(fetchMock.mock.calls[1]![1]?.headers).get("authorization")).toBe("Bearer read-token");
+  });
+
+  it("requires bearer authentication to cancel an input", async () => {
+    const unauthenticatedFetch = vi.fn<MayiFetch>();
+    const unauthenticatedClient = new MayiClient({ origin: "https://mayi.example", fetch: unauthenticatedFetch });
+
+    await expect(unauthenticatedClient.inputs.cancel("InputAbcdefg")).rejects.toMatchObject({
+      name: "MayiAuthenticationError",
+      code: "ACCESS_TOKEN_PROVIDER_REQUIRED",
+    });
+    expect(unauthenticatedFetch).not.toHaveBeenCalled();
+
+    const getAccessToken = vi.fn(async () => "cancel-token");
+    const authenticatedFetch = vi.fn<MayiFetch>(async () => jsonResponse({ ...pendingInput, state: "CANCELLED" }));
+    const authenticatedClient = new MayiClient({
+      origin: "https://mayi.example",
+      getAccessToken,
+      fetch: authenticatedFetch,
+    });
+
+    await authenticatedClient.inputs.cancel("InputAbcdefg");
+    const [url, init] = authenticatedFetch.mock.calls[0]!;
+    expect(String(url)).toBe("https://mayi.example/api/inputs/InputAbcdefg/cancel");
+    expect(init?.method).toBe("POST");
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer cancel-token");
+  });
+
+  it("keeps human answers cookie-authenticated when a provider is configured", async () => {
+    const getAccessToken = vi.fn(async () => "agent-token");
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse(answeredInput));
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken, fetch: fetchMock });
+
+    await expect(client.answerInput("InputAbcdefg", { optionId: "staging" })).resolves.toEqual(answeredInput);
+
+    expect(getAccessToken).not.toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://mayi.example/api/inputs/InputAbcdefg/answer");
+    expect(init?.method).toBe("POST");
+    const { headers, body } = captured(init);
+    expect(headers.has("authorization")).toBe(false);
+    expect(init?.credentials).toBe("include");
+    expect(JSON.parse(body!)).toEqual({ optionId: "staging" });
+  });
+
+  it("allows cookie-backed browser input reads without an access-token provider", async () => {
+    const responses = [jsonResponse([pendingInput]), jsonResponse(pendingInput)];
+    const fetchMock = vi.fn<MayiFetch>(async () => responses.shift()!);
+    const client = new MayiClient({ origin: "https://mayi.example", fetch: fetchMock });
+
+    await expect(client.listInputs("PENDING")).resolves.toEqual([pendingInput]);
+    await expect(client.input("InputAbcdefg")).resolves.toEqual(pendingInput);
+
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://mayi.example/api/inputs?state=PENDING");
+    expect(String(fetchMock.mock.calls[1]![0])).toBe("https://mayi.example/api/inputs/InputAbcdefg");
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      expect(init?.credentials).toBe("include");
+    }
   });
 });
 

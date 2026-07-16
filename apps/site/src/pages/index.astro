@@ -4,79 +4,38 @@ import ReceiptMark from "../components/ReceiptMark.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import { APP_URL } from "../consts";
 
-// Four sentences, each one a thing that is true while a request is held.
-const held = [
+// The three shapes a question can take. One contract underneath all of them.
+const shapes = [
   {
-    now: "The action is exact.",
-    then: "You see the specific call the agent intends to make, with every argument that carries weight, as it will be made. Nobody is summarising anything for you.",
+    now: "Approve or deny.",
+    then: "The receipt-bearing kind. The agent files the exact action it intends to take, and a yes comes back as a signed receipt bound to that action, the evidence, and the person. Your executor checks the receipt before anything runs.",
   },
   {
-    now: "The evidence is frozen.",
-    then: "The PDFs and images behind the case are hashed the moment the request goes pending. You review the ones the receipt will name.",
+    now: "Pick an option.",
+    then: "Up to twenty options, each with a label and description written for a person, not a parser. Allow a freeform answer alongside the list when the right choice might not be on it.",
   },
   {
-    now: "The person is named.",
-    then: "It arrives as a notification on one approver's phone, or in the browser if they are not on the app. Same request, same review, either way.",
+    now: "Answer in words.",
+    then: "A question and a text box. Release notes, a judgement call, the name of the customer to ring first. The answer comes back exactly as typed.",
   },
-  {
-    now: "Nothing has run.",
-    then: "May I? never performs the action. It is holding a question. The hand on the lever stays yours.",
-  },
-];
-
-// The four things a receipt is bound to. Change any one of them and it stops validating.
-const bound = [
-  { field: "action", value: "payments.refund", note: "The call and every argument that carries weight." },
-  { field: "evidence", value: "2 files · sha256", note: "The exact bytes she opened. Filenames are easy to reuse; bytes are not." },
-  { field: "approver", value: "dana@northwind", note: "Authenticated at the moment of the answer." },
-  { field: "policy", value: "rev 41", note: "The rules as they read on the day she answered." },
-];
-
-// What an agent can't talk its way past.
-const stops = [
-  {
-    kind: "The quiet edit",
-    story:
-      "The agent gets approval for USD 480, then issues USD 48,000. The amount is inside the signature. Your executor rejects the receipt before the payment processor ever hears about it.",
-  },
-  {
-    kind: "The swapped file",
-    story:
-      "Approval was granted against one settlement report. A different PDF shows up at execution time. The hash in the receipt names the first one, so the second one has no approval attached to it.",
-  },
-  {
-    kind: "The replay",
-    story:
-      "A receipt for last Tuesday's refund is presented again this Tuesday. It is single-use and scoped to one request id. The second attempt is not an approval, it is a duplicate.",
-  },
-];
-
-// Real places a pause belongs. Named by the action, not the industry.
-const fits = [
-  { verb: "Move money", detail: "Refunds, payouts, credits, anything with a settlement on the other side." },
-  { verb: "Ship code", detail: "Merges to protected branches, production deploys, migrations that drop things." },
-  { verb: "Touch a customer", detail: "Account closures, plan changes, anything that sends mail in your name." },
-  { verb: "Grant access", detail: "Role changes, key issuance, adding a principal to something that matters." },
-  { verb: "Delete", detail: "Records, buckets, tenants. The category where undo is a support ticket." },
-  { verb: "Sign", detail: "Contracts, invoices, anything where your name goes on the bottom of the page." },
 ];
 
 const faqs = [
   {
     q: "Does May I? need access to my systems?",
-    a: "No. It holds requests and issues receipts. Your executor already has the credentials and keeps them; it just checks a signature before it runs. May I? never gets a key to the thing it is protecting.",
+    a: "No. It holds questions and returns signed answers. For approvals, your executor already has the credentials and keeps them; it just checks a signature before it runs. May I? never gets a key to the thing it is protecting.",
   },
   {
     q: "What happens if nobody answers?",
-    a: "The request expires on the deadline the agent asked for, and expiry is a denial. Silence never becomes a yes.",
+    a: "The question expires on the deadline the agent asked for, and expiry is its own resolution — the agent is told, it is never left guessing. For approvals, expiry is a denial. Silence never becomes a yes.",
   },
   {
     q: "Can an approver be tricked by a persuasive agent?",
-    a: "The agent writes the because line, and that is the one field it fully controls. The call, the arguments and the file hashes are all rendered from the request itself, so the persuasion has nowhere to reach. She reads the action, not the argument for it.",
+    a: "The agent writes the prompt, and that is the one field it fully controls. For approvals, the call, the arguments and the file hashes are all rendered from the request itself, so the persuasion has nowhere to reach. She reads the action, not the argument for it.",
   },
   {
     q: "How fast is it?",
-    a: "The request is pending within a few hundred milliseconds and the notification lands about as fast as any other push. The rest of the latency is a human reading, which is the part you are paying for.",
+    a: "The question is pending within a few hundred milliseconds and the notification lands about as fast as any other push. The rest of the latency is a human reading, which is the part you are paying for.",
   },
   {
     q: "What if I want it on my own infrastructure?",
@@ -86,8 +45,8 @@ const faqs = [
 ---
 
 <MarketingLayout
-  title="May I? — the pause before an agent acts"
-  description="A human-in-the-loop approval service for agents. The action waits, exactly as filed, until one person answers, and the receipt proves what they saw."
+  title="May I? — the human-in-the-loop service for agents"
+  description="A human-in-the-loop service for agents. An agent stops and asks a person — approve or deny, pick an option, answer in words — and resumes on the answer. Approvals come back as signed receipts."
 >
   <header class="mx-auto flex w-[min(980px,100%-3rem)] items-center justify-between pt-8">
     <a href="/" class="flex items-center gap-2 text-[15px] font-semibold" aria-label="May I? home">
@@ -112,7 +71,7 @@ const faqs = [
       </span>
       <!-- Mono here because of the clock: the number is machine output, and it ticks. -->
       <p class="font-mono text-[11px] text-muted-foreground uppercase">
-        One request, held for <span data-held-clock class="text-primary-ink tabular-nums">00:00</span>
+        One question, held for <span data-held-clock class="text-primary-ink tabular-nums">00:00</span>
       </p>
     </div>
 
@@ -124,8 +83,9 @@ const faqs = [
     </h1>
 
     <p data-reveal="3" class="mt-9 max-w-[54ch] text-[19px] leading-[1.55] text-body">
-      It has everything it needs to issue the refund. It is not going to. May I? holds the whole request, the exact
-      action and the evidence behind it, until one authenticated human reads it and answers.
+      It hit the part of the job only a person can settle. A yes or no, a pick between options, a sentence in your own
+      words. May I? holds the question until one authenticated human answers, and then the agent resumes exactly where
+      it parked. Approvals are one kind of question — the kind whose yes comes back as a signed receipt.
     </p>
 
     <div data-reveal="4" class="mt-10 flex flex-wrap items-center gap-6">
@@ -145,40 +105,39 @@ const faqs = [
     </p>
   </section>
 
-  <!-- THE HELD REQUEST + what it looks like on her phone -->
+  <!-- THE HELD QUESTION + what it looks like on her phone -->
   <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]">
     <div class="grid grid-cols-1 gap-12 border-t border-border pt-8 lg:grid-cols-[1fr_260px] lg:gap-16">
       <div class="min-w-0">
         <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">What she is looking at</p>
 
         <dl class="mt-7 grid gap-y-3 font-mono text-[13px] sm:grid-cols-[150px_1fr]">
-          <dt class="text-muted-foreground">action</dt>
-          <dd class="break-all">payments.refund</dd>
-          <dt class="text-muted-foreground">amount</dt>
-          <dd>USD 48,000.00</dd>
-          <dt class="text-muted-foreground">destination</dt>
-          <dd class="break-all">acct_8841 — merchant of record</dd>
-          <dt class="text-muted-foreground">because</dt>
+          <dt class="text-muted-foreground">type</dt>
+          <dd>select</dd>
+          <dt class="text-muted-foreground">prompt</dt>
           <!-- The one field the agent writes freely, so it is set as prose. Everything
-               above it is rendered from the request and stays in mono. -->
+               around it is rendered from the request and stays in mono. -->
           <dd class="max-w-[52ch] font-suisse text-[14px] leading-relaxed text-body">
-            "Duplicate capture on order #99812. Both charges settled. Customer has been billed twice."
+            "Two builds passed CI for the 2.4 release. The hotfix alone is safer; the full release closes more tickets.
+            Which one ships?"
           </dd>
-          <dt class="text-muted-foreground">evidence</dt>
-          <dd class="text-body">settlement.pdf, ticket-4417.png</dd>
+          <dt class="text-muted-foreground">options</dt>
+          <dd class="break-all">full-release · hotfix-only · hold</dd>
+          <dt class="text-muted-foreground">expires</dt>
+          <dd>in 30 minutes</dd>
           <dt class="text-muted-foreground">asked by</dt>
-          <dd class="font-suisse text-[14px] text-body">billing-ops, over MCP, under a consent you can revoke</dd>
+          <dd class="font-suisse text-[14px] text-body">release-bot, over MCP, under a consent you can revoke</dd>
         </dl>
 
         <p class="mt-9 max-w-[60ch] text-[17px] leading-[1.6] text-body">
-          She approves. The receipt she gets back is bound to this action, these two files, her identity, and the policy
-          as it read at that moment. Your executor verifies the receipt and only then moves the money. If the agent
-          edits the amount or swaps a file afterwards, the receipt stops validating, and nothing happens.
+          She picks the hotfix. The answer goes back to the agent as a signed event, the parked run resumes with her
+          choice in hand, and the release goes out on the safer build. Had this been an approval — money moving, code
+          shipping — the yes would also carry a receipt bound to the exact action she read.
         </p>
       </div>
 
       <!-- Her phone, at the moment it buzzes. Same paper as the page — the only
-           dark left is the bezel, the only colour is the answer she has to give. -->
+           dark left is the bezel. -->
       <div class="hidden justify-self-end lg:block" aria-hidden="true">
         <div class="w-[248px] rounded-[42px] bg-device p-[4px] shadow-[0_40px_70px_-34px_rgba(21,24,26,0.5)]">
           <div class="relative flex aspect-[9/19.5] flex-col rounded-[38px] bg-background px-3">
@@ -191,14 +150,17 @@ const faqs = [
               <p class="flex items-center gap-1.5 text-[9px] font-medium tracking-[0.09em] text-primary-ink uppercase">
                 <span class="h-1.5 w-1.5 animate-breathe rounded-full bg-primary"></span> May I?
               </p>
-              <p class="mt-1.5 text-[12px] leading-tight font-semibold">billing-ops wants to refund $48,000</p>
-              <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Duplicate capture on #99812 · 2 files</p>
-              <div class="mt-2.5 flex gap-1.5">
-                <span class="flex-1 rounded-full bg-primary py-1 text-center text-[10px] font-medium text-primary-foreground">
-                  Approve
+              <p class="mt-1.5 text-[12px] leading-tight font-semibold">release-bot needs a decision</p>
+              <p class="mt-1 text-[11px] leading-snug text-muted-foreground">Which build ships? · 3 options</p>
+              <div class="mt-2.5 flex flex-col gap-1.5">
+                <span class="rounded-full border border-foreground/20 py-1 text-center text-[10px] font-medium">
+                  Full release
                 </span>
-                <span class="flex-1 rounded-full border border-foreground/20 py-1 text-center text-[10px] font-medium">
-                  Deny
+                <span class="rounded-full border border-foreground/20 py-1 text-center text-[10px] font-medium">
+                  Hotfix only
+                </span>
+                <span class="rounded-full border border-foreground/20 py-1 text-center text-[10px] font-medium">
+                  Hold
                 </span>
               </div>
             </div>
@@ -210,32 +172,43 @@ const faqs = [
     </div>
   </section>
 
-  <!-- FOUR TRUTHS -->
-  <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]">
-    <div class="divide-y divide-border border-y border-border">
+  <!-- WHAT IT DOES: three shapes, one contract -->
+  <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
+    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">What it does</p>
+    <h2 class="mt-5 max-w-[22ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
+      Three shapes of question. One contract.
+    </h2>
+
+    <div class="mt-10 divide-y divide-border border-y border-border">
       {
-        held.map((h) => (
+        shapes.map((s) => (
           <div class="grid gap-2 py-8 sm:grid-cols-[1fr_1.25fr] sm:gap-10">
-            <p class="text-[21px] leading-tight font-medium">{h.now}</p>
-            <p class="max-w-[50ch] text-[16px] leading-[1.6] text-body">{h.then}</p>
+            <p class="text-[21px] leading-tight font-medium">{s.now}</p>
+            <p class="max-w-[50ch] text-[16px] leading-[1.6] text-body">{s.then}</p>
           </div>
         ))
       }
     </div>
+
+    <p class="mt-8 max-w-[62ch] text-[16px] leading-[1.6] text-body">
+      All three take the same request — a prompt, an expiry, an optional suggested person, an optional callback — and
+      resolve the same way: answered, expired, or cancelled, delivered as one signed event. Approvals are the one with
+      a receipt on top.
+    </p>
   </section>
 
   <!-- THE FLOW: where the pause sits, and what never crosses it. -->
   <section id="how" class="mx-auto w-[min(980px,100%-3rem)] scroll-mt-16 pb-[14vh]" data-io>
     <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The whole of it</p>
-    <h2 class="mt-5 max-w-[22ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
-      Your agent asks. Your executor checks. We hold the middle.
+    <h2 class="mt-5 max-w-[24ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
+      Your agent asks. A person answers. The work resumes.
     </h2>
 
     <figure class="mt-12">
       <svg viewBox="0 0 900 260" class="w-full" role="img" aria-labelledby="flow-title">
         <title id="flow-title">
-          The agent submits a request to May I?, which holds it until an approver answers; the signed receipt goes back
-          to the agent, which presents it to your executor, which verifies it before performing the action.
+          The agent submits a question to May I?, which holds it until a person answers; the signed answer goes back to
+          the agent, which resumes the parked work from where it stopped.
         </title>
         {/* Colour is set with Tailwind fill and stroke utilities rather than raw
             fill="#..." attributes, so the diagram follows the theme like the rest of
@@ -251,33 +224,33 @@ const faqs = [
         <rect x="300" y="18" width="300" height="224" rx="14" fill="none" class="stroke-primary" stroke-opacity="0.3" stroke-dasharray="3 4"></rect>
         <text x="450" y="42" text-anchor="middle" font-size="10" class="fill-primary-ink">HELD</text>
 
-        <!-- agent -->
+        <!-- agent, asking -->
         <rect x="20" y="96" width="150" height="62" rx="10" fill="none" class="stroke-foreground" stroke-opacity="0.25"></rect>
         <text x="95" y="122" text-anchor="middle" font-size="14" font-weight="600" class="fill-foreground">Your agent</text>
-        <text x="95" y="140" text-anchor="middle" font-size="10" class="fill-muted-foreground">over MCP</text>
+        <text x="95" y="140" text-anchor="middle" font-size="10" class="fill-muted-foreground">parked, over MCP</text>
 
         <!-- may i -->
         <rect x="340" y="76" width="220" height="102" rx="10" class="fill-background stroke-primary" stroke-opacity="0.5"></rect>
         <text x="450" y="106" text-anchor="middle" font-size="14" font-weight="600" class="fill-foreground">May I?</text>
-        <text x="450" y="126" text-anchor="middle" font-size="10" class="fill-muted-foreground">action + evidence, frozen</text>
-        <text x="450" y="142" text-anchor="middle" font-size="10" class="fill-muted-foreground">notify · review · sign</text>
+        <text x="450" y="126" text-anchor="middle" font-size="10" class="fill-muted-foreground">the question, frozen</text>
+        <text x="450" y="142" text-anchor="middle" font-size="10" class="fill-muted-foreground">notify · answer · sign</text>
         <circle cx="450" cy="160" r="4" class="animate-breathe fill-primary"></circle>
 
-        <!-- approver -->
+        <!-- the person -->
         <rect x="380" y="196" width="140" height="34" rx="17" fill="none" class="stroke-foreground" stroke-opacity="0.25"></rect>
         <text x="450" y="218" text-anchor="middle" font-size="12" class="fill-foreground">One named human</text>
 
-        <!-- executor -->
+        <!-- agent, resumed -->
         <rect x="730" y="96" width="150" height="62" rx="10" fill="none" class="stroke-foreground" stroke-opacity="0.25"></rect>
-        <text x="805" y="122" text-anchor="middle" font-size="14" font-weight="600" class="fill-foreground">Your executor</text>
-        <text x="805" y="140" text-anchor="middle" font-size="10" class="fill-muted-foreground">holds the keys</text>
+        <text x="805" y="122" text-anchor="middle" font-size="14" font-weight="600" class="fill-foreground">Your agent</text>
+        <text x="805" y="140" text-anchor="middle" font-size="10" class="fill-muted-foreground">resumed, answer in hand</text>
 
         <!-- arrows -->
         <path d="M170 118 L332 118" class="stroke-muted-foreground" stroke-width="1.2" marker-end="url(#ah)" fill="none"></path>
         <text x="251" y="110" text-anchor="middle" font-size="9" class="fill-muted-foreground">may i?</text>
 
         <path d="M568 136 L722 136" class="stroke-muted-foreground" stroke-width="1.2" marker-end="url(#ah)" fill="none"></path>
-        <text x="645" y="128" text-anchor="middle" font-size="9" class="fill-primary-ink">signed receipt</text>
+        <text x="645" y="128" text-anchor="middle" font-size="9" class="fill-primary-ink">signed answer</text>
 
         <path d="M450 178 L450 190" class="stroke-muted-foreground" stroke-width="1.2" marker-end="url(#ah)" fill="none"></path>
 
@@ -289,153 +262,104 @@ const faqs = [
       </svg>
       <figcaption class="mt-8 max-w-[62ch] text-[16px] leading-[1.6] text-body">
         May I? sits beside the work rather than in front of it. It never holds your credentials and never calls your
-        API. The only thing it hands back is a signature, and a signature is safe to lose.
+        API. The request returns pending in milliseconds, the answer arrives whenever the person gets to it, and the
+        run that was parked picks up from the same line. Nothing waits in memory; the pause is durable.
       </figcaption>
     </figure>
   </section>
 
-  <!-- WIRE IT IN -->
+  <!-- UNATTENDED & CRON AGENTS -->
   <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
-    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Two calls, both small</p>
-    <h2 class="mt-5 max-w-[20ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
-      One line to ask. One line to trust.
+    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Nobody at the keyboard</p>
+    <h2 class="mt-5 max-w-[22ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
+      Unattended agents can finally ask someone.
     </h2>
 
-    <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
-        <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The agent side · MCP</p>
-        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`const receipt = await mayi.ask({
-  action: "payments.refund",
-  args: { amount: 4800000, to: "acct_8841" },
-  because: "Duplicate capture on #99812.",
-  evidence: [settlementPdf, ticketPng],
-  approver: "dana@northwind",
-  deadline: "30m",
-});
-// returns PENDING; a signed callback resumes parked work.
-// polling is reconciliation/fallback only.`}</code></pre>
-      </div>
-
-      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
-        <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The executor side · verify</p>
-        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`app.post("/refund", async (req, res) => {
-  const ok = await mayi.verify(req.body.receipt, {
-    action: "payments.refund",
-    args: req.body.args,
-  });
-  if (!ok) return res.status(403).end();
-
-  await stripe.refunds.create(req.body.args);
-});
-// the args are in the signature. lie and it fails.`}</code></pre>
-      </div>
-    </div>
-
-    <p class="mt-8 max-w-[62ch] text-[16px] leading-[1.6] text-body">
-      Verification is offline: a public key and a hash comparison. Your executor does not call us to check a receipt, so
-      if May I? is down, work that is already approved still runs. Only new questions wait.
-    </p>
-  </section>
-
-  <!-- THE RECEIPT: anatomy + tamper -->
-  <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
-    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">The receipt</p>
-    <h2 class="mt-5 max-w-[24ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
-      Proof of what she saw, not proof that she clicked.
-    </h2>
-
-    <div class="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16">
-      <div class="min-w-0">
-        <ul class="divide-y divide-border border-y border-border">
-          {
-            bound.map((b) => (
-              <li class="grid grid-cols-[80px_1fr] items-baseline gap-4 py-5">
-                <span class="font-mono text-[11px] text-muted-foreground">{b.field}</span>
-                <div>
-                  <p class="font-mono text-[13px] break-all">{b.value}</p>
-                  <p class="mt-1 max-w-[38ch] text-[14px] leading-[1.55] text-body">{b.note}</p>
-                </div>
-              </li>
-            ))
-          }
-        </ul>
-        <p class="mt-7 max-w-[52ch] text-[16px] leading-[1.6] text-body">
-          An audit log says an approval happened. A receipt says what was approved, and refuses to say it about anything
-          else. Most of the value is in that second half.
-        </p>
-      </div>
-
-      <!-- Tamper demo -->
-      <div class="min-w-0 rounded-xl border border-border bg-muted p-6">
-        <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Try to move a decimal</p>
-
-        <dl class="mt-6 grid grid-cols-[74px_1fr] gap-y-2.5 font-mono text-[12px]">
-          <dt class="text-muted-foreground">action</dt>
-          <dd>payments.refund</dd>
-          <dt class="text-muted-foreground">amount</dt>
-          <dd data-tamper-amount class="transition-colors">USD 48,000.00</dd>
-          <dt class="text-muted-foreground">digest</dt>
-          <dd data-tamper-digest class="break-all transition-colors">a91f…7c02</dd>
-        </dl>
-
-        <div
-          data-tamper-verdict
-          class="mt-6 flex items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/8 px-4 py-3 font-mono text-[12px] text-primary-ink"
-        >
-          <span data-tamper-dot class="h-1.5 w-1.5 rounded-full bg-primary"></span>
-          <span data-tamper-text>receipt valid — signed by dana@northwind</span>
-        </div>
-
-        <button
-          type="button"
-          data-tamper-toggle
-          class="mt-5 rounded-full border border-foreground/25 px-5 py-2 text-[13px] font-medium transition-colors hover:border-foreground/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          aria-pressed="false"
-        >
-          Edit the amount after approval
-        </button>
-        <p class="mt-4 max-w-[36ch] text-[13px] leading-relaxed text-muted-foreground">
-          The digest is over the action and its arguments. Change one character and every executor holding the public
-          key knows independently.
-        </p>
-      </div>
-    </div>
-  </section>
-
-  <!-- WHAT IT STOPS -->
-  <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
-    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Three ways it goes wrong without one</p>
-    <div class="mt-10 grid gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3">
-      {
-        stops.map((s) => (
-          <div class="bg-background p-7">
-            <p class="text-[17px] font-semibold">{s.kind}</p>
-            <p class="mt-3 text-[15px] leading-[1.6] text-body">{s.story}</p>
-          </div>
-        ))
-      }
+    <div class="mt-9 max-w-[62ch] space-y-6 text-[17px] leading-[1.6] text-body">
+      <p>
+        A scheduled agent has no chat window and no user watching it. When it hits something a person should settle, it
+        has always had two options: guess, or give up. May I? gives it a third. It files the question, parks, and the
+        question lands as a push on someone's phone. The answer can come back three minutes later or on Monday morning
+        — the run resumes either way, from exactly where it stopped, with nothing held open in between.
+      </p>
+      <p>
+        One honest note if you run on Eve: Eve deliberately keeps <code class="font-mono text-[15px]">ask_question</code>
+        out of task-mode and cron runs, because there is no user session to intercept, so the built-in path will not
+        ask on a schedule by itself. You hand the run to the May I? channel from a schedule handler, or write a tool of
+        your own that calls May I? directly. Either way the parking and the resume are the same.
+      </p>
     </div>
   </section>
 
   <!-- WHERE IT FITS -->
   <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
-    <h2 class="max-w-[20ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
-      Put it in front of anything you would not want done twice.
+    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Where it fits</p>
+    <h2 class="mt-5 max-w-[24ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
+      Drop-in for Eve. A small SDK for everything else.
     </h2>
-    <div class="mt-12 grid gap-x-12 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
-      {
-        fits.map((f) => (
-          <div>
-            <p class="text-[16px] font-semibold">{f.verb}</p>
-            <p class="mt-2 max-w-[34ch] text-[15px] leading-[1.55] text-body">{f.detail}</p>
-          </div>
-        ))
-      }
+
+    <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
+        <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Any agent · @mayiapp/sdk</p>
+        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`const input = await mayi.inputs.request({
+  type: "select",
+  prompt: "Which build ships?",
+  options: [
+    { id: "full", label: "Full release" },
+    { id: "hotfix", label: "Hotfix only" },
+  ],
+  expiresInSeconds: 1800,
+  callback: { url, state },
+}, { idempotencyKey });
+// returns PENDING; a signed callback resumes parked work.
+// no callback? poll GET /api/inputs/:id instead.`}</code></pre>
+      </div>
+
+      <div class="min-w-0 max-w-full rounded-xl border border-border bg-muted p-6">
+        <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Eve agents · @mayiapp/eve</p>
+        <pre class="mt-5 max-w-full overflow-x-auto font-mono text-[12px] leading-[1.75] text-foreground"><code>{`// agent/channels/mayi.ts
+import { mayiChannel } from "@mayiapp/eve";
+
+export default mayiChannel({
+  getAccessToken: () =>
+    credentials.getAccessToken("mayi"),
+});
+// every ask_question — confirmation, select, text —
+// now reaches a person. approve/deny still mints
+// a receipt through the approvals path.`}</code></pre>
+      </div>
     </div>
-    <p class="mt-14 max-w-[58ch] text-[17px] leading-[1.6] text-body">
-      The rule of thumb: if a mistake there costs you a phone call, an apology, or a lawyer, it is worth thirty seconds
-      of someone's attention first.
+
+    <p class="mt-8 max-w-[62ch] text-[16px] leading-[1.6] text-body">
+      The Eve adapter is one channel definition: every human ask the agent raises routes to May I?, and approve/deny
+      confirmations keep their receipt semantics untouched. Everything else — any framework, any language — is the SDK
+      or plain HTTP against the same endpoints, with the same signed resolution either way.
     </p>
+  </section>
+
+  <!-- TRUST & VERIFIABILITY -->
+  <section class="mx-auto w-[min(980px,100%-3rem)] pb-[14vh]" data-io>
+    <p class="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Trust &amp; verifiability</p>
+    <h2 class="mt-5 max-w-[24ch] text-[clamp(1.7rem,4vw,2.8rem)] leading-[1.05] font-semibold">
+      An agent can't claim an answer it never got.
+    </h2>
+
+    <div class="mt-9 max-w-[62ch] space-y-6 text-[17px] leading-[1.6] text-body">
+      <p>
+        Every resolution is signed by May I?, and every answer mints a durable attestation: who answered, what they
+        said, and when. Both verify offline against published keys, so "a human said yes" is a claim anyone can check
+        — at execution time, or in an incident review a year later.
+      </p>
+      <p>
+        Approvals carry a receipt on top, bound to the exact action, the evidence files, the approver, and the policy
+        of the day. Edit the amount after approval or swap a file, and the receipt stops validating before your
+        executor moves anything. Expiry is a denial; silence never becomes a yes.
+      </p>
+      <p>
+        None of this is the pitch. It is the floor under it — the reason an answer relayed through an agent is worth
+        the same as one you heard yourself.
+      </p>
+    </div>
   </section>
 
   <!-- HOSTED OR YOURS -->
@@ -446,7 +370,7 @@ const faqs = [
         <p class="mt-4 text-[19px] leading-tight font-medium">Start asking in an afternoon.</p>
         <p class="mt-3 max-w-[40ch] text-[15px] leading-[1.6] text-body">
           Push notifications, the apps, key rotation, and the pager are ours. Free while you are small enough that a
-          person can still read every request.
+          person can still read every question.
         </p>
         <a
           href={APP_URL}
@@ -459,8 +383,8 @@ const faqs = [
         <p class="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase">Self-hosted</p>
         <p class="mt-4 text-[19px] leading-tight font-medium">One service and a database.</p>
         <p class="mt-3 max-w-[40ch] text-[15px] leading-[1.6] text-body">
-          Same code, your infrastructure, your signing keys, no request ever leaving your network. Apache-2.0, and the
-          receipts verify the same either way.
+          Same code, your infrastructure, your signing keys, no question ever leaving your network. Apache-2.0, and the
+          answers verify the same either way.
         </p>
         <a
           href="https://github.com/asiraky/mayi"
@@ -496,7 +420,7 @@ const faqs = [
       The pause is the product.
     </h2>
     <p class="mt-6 max-w-[54ch] text-[17px] leading-[1.6] text-body">
-      Hosted, or self-hosted on your own infrastructure. Either way, May I? holds the question and keeps the proof, and
+      Hosted, or self-hosted on your own infrastructure. Either way, May I? holds the question, keeps the proof, and
       never touches the thing itself.
     </p>
     <div class="mt-9 flex flex-wrap items-center gap-6">
@@ -527,7 +451,7 @@ const faqs = [
 <script>
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // The page holds for a beat before it settles, the way a request does.
+  // The page holds for a beat before it settles, the way a question does.
   const steps = document.querySelectorAll<HTMLElement>("[data-reveal]");
   for (const step of steps) {
     if (reduced) break;
@@ -572,7 +496,7 @@ const faqs = [
     for (const section of sections) io.observe(section);
   }
 
-  // Counts how long this one request has been held — since you arrived.
+  // Counts how long this one question has been held — since you arrived.
   const clock = document.querySelector<HTMLElement>("[data-held-clock]");
   if (clock) {
     let seconds = 0;
@@ -582,47 +506,5 @@ const faqs = [
       const s = String(seconds % 60).padStart(2, "0");
       clock.textContent = `${m}:${s}`;
     }, 1000);
-  }
-
-  // Move a decimal after the fact and watch the signature stop agreeing.
-  const toggle = document.querySelector<HTMLButtonElement>("[data-tamper-toggle]");
-  const amount = document.querySelector<HTMLElement>("[data-tamper-amount]");
-  const digest = document.querySelector<HTMLElement>("[data-tamper-digest]");
-  const verdict = document.querySelector<HTMLElement>("[data-tamper-verdict]");
-  const dot = document.querySelector<HTMLElement>("[data-tamper-dot]");
-  const text = document.querySelector<HTMLElement>("[data-tamper-text]");
-
-  if (toggle && amount && digest && verdict && dot && text) {
-    const valid = {
-      amount: "USD 48,000.00",
-      digest: "a91f…7c02",
-      text: "receipt valid — signed by dana@northwind",
-      label: "Edit the amount after approval",
-    };
-    const tampered = {
-      amount: "USD 480,000.00",
-      digest: "d47b…1e88",
-      text: "no signature for this action — refused",
-      label: "Put it back",
-    };
-
-    let isTampered = false;
-    toggle.addEventListener("click", () => {
-      isTampered = !isTampered;
-      const state = isTampered ? tampered : valid;
-
-      amount.textContent = state.amount;
-      digest.textContent = state.digest;
-      text.textContent = state.text;
-      toggle.textContent = state.label;
-      toggle.setAttribute("aria-pressed", String(isTampered));
-
-      amount.classList.toggle("text-destructive", isTampered);
-      digest.classList.toggle("text-destructive", isTampered);
-      verdict.className = isTampered
-        ? "mt-6 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive/8 px-4 py-3 font-mono text-[12px] text-destructive"
-        : "mt-6 flex items-center gap-2.5 rounded-lg border border-primary/25 bg-primary/8 px-4 py-3 font-mono text-[12px] text-primary-ink";
-      dot.className = isTampered ? "h-1.5 w-1.5 rounded-full bg-destructive" : "h-1.5 w-1.5 rounded-full bg-primary";
-    });
   }
 </script>

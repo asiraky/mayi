@@ -5,7 +5,7 @@ import {
   createMayiIdempotencyKey,
   createRuntime,
   mayiChannel,
-  UnsupportedMayiInputError,
+  type EveInputRequest,
   type MayiChannelState,
   type MayiContinuationStateV1,
   type MayiArtefactsContext,
@@ -33,6 +33,24 @@ function approvalRequest(callId: string, requestId: string) {
   };
 }
 
+function questionRequest(requestId: string, shape: {
+  display?: "confirmation" | "select" | "text";
+  options?: { id: string; label?: string; description?: string; style?: "danger" | "default" | "primary" }[];
+  allowFreeform?: boolean;
+}): EveInputRequest {
+  return {
+    action: {
+      kind: "tool-call" as const,
+      toolName: "ask_question",
+      callId: `${requestId}-call`,
+      input: {},
+    },
+    prompt: "Which rollout option?",
+    requestId,
+    ...shape,
+  };
+}
+
 function pendingApproval(action: unknown, explanation: string) {
   return {
     id: "ApprovalAbcd",
@@ -54,9 +72,35 @@ function pendingApproval(action: unknown, explanation: string) {
   };
 }
 
+function pendingInput(request: {
+  type: "text" | "select" | "confirmation";
+  prompt: string;
+  options?: { id: string; label: string }[];
+  allowFreeform?: boolean;
+}) {
+  return {
+    id: "InputAbcdefg",
+    type: request.type,
+    prompt: request.prompt,
+    options: request.options ?? null,
+    allowFreeform: request.allowFreeform ?? false,
+    state: "PENDING",
+    answer: null,
+    attestation: null,
+    respondentId: null,
+    agentId: "AgentAbcdefg",
+    createdAt: "2026-07-15T00:00:00.000Z",
+    expiresAt: "2026-07-15T01:00:00.000Z",
+    answeredAt: null,
+    cancelledAt: null,
+  };
+}
+
 function createFetchMock() {
-  return vi.fn<MayiFetch>(async (_input, init) => {
-    const request = JSON.parse(String(init?.body)) as { action: unknown; explanation: string };
+  return vi.fn<MayiFetch>(async (input, init) => {
+    const request = JSON.parse(String(init?.body)) as Parameters<typeof pendingInput>[0]
+      & { action: unknown; explanation: string };
+    if (String(input).endsWith("/api/inputs")) return Response.json(pendingInput(request));
     return Response.json(pendingApproval(request.action, request.explanation));
   });
 }
@@ -355,27 +399,123 @@ describe("mayiChannel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { display: "text" as const, allowFreeform: true },
-    { display: "select" as const, options: [{ id: "blue", label: "Blue" }] },
-  ])("rejects unsupported ask_question input loudly for $display", async (shape) => {
+  it("routes a text ask through the generic inputs API with the sealed continuation state", async () => {
     const fetchMock = createFetchMock();
     const fixture = await runtime(fetchMock);
     const handler = createInputRequestedHandler(fixture.runtime);
-    const request = {
-      ...approvalRequest("question-call", "question-request"),
-      ...shape,
-      prompt: "Which option?",
-    };
+    const request = questionRequest("question-request", { display: "text" });
 
-    const promise = handler({ requests: [request] }, {
+    await handler({ requests: [request] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: { mayiUserId: "ApproverAbcd" } },
+    }, { session: { id: "eve-session-one" } });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://mayi.example/api/inputs");
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown> & { callback: { state: string; url: string } };
+    expect(body).toMatchObject({
+      type: "text",
+      prompt: "Which rollout option?",
+      expiresInSeconds: 3_600,
+      suggestedApproverId: "ApproverAbcd",
+    });
+    expect(body).not.toHaveProperty("options");
+    expect(body).not.toHaveProperty("allowFreeform");
+    expect(body).not.toHaveProperty("action");
+    expect(body.callback.url).toBe(`https://agent.example${MAYI_CALLBACK_PATH}`);
+    expect(new Headers(init?.headers).get("idempotency-key"))
+      .toBe(await createMayiIdempotencyKey("eve-session-one", "question-request"));
+    await expect(fixture.callbackStateCodec.open<MayiContinuationStateV1>(body.callback.state))
+      .resolves.toMatchObject({
+        version: 1,
+        rawContinuationToken: "mayi:durable-token",
+        requestId: "question-request",
+        sessionId: "eve-session-one",
+      });
+  });
+
+  it("maps a select ask with labels, descriptions, styles, and freeform through unchanged", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(fixture.runtime);
+    const request = questionRequest("question-request", {
+      display: "select",
+      allowFreeform: true,
+      options: [
+        { id: "blue", label: "Blue", description: "The calm one", style: "primary" },
+        { id: "red" },
+      ],
+    });
+
+    await handler({ requests: [request] }, {
       state: { rawContinuationToken: "mayi:durable-token", target: {} },
     }, { session: { id: "eve-session-one" } });
-    const error = await promise.catch((cause) => cause) as AggregateError;
-    expect(error).toBeInstanceOf(AggregateError);
-    expect(error.errors[0]).toBeInstanceOf(UnsupportedMayiInputError);
-    expect(error.errors[0]).toHaveProperty("message", expect.stringMatching(/supports only tool approval confirmations/u));
-    expect(fetchMock).not.toHaveBeenCalled();
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://mayi.example/api/inputs");
+    expect(body).toMatchObject({
+      type: "select",
+      prompt: "Which rollout option?",
+      allowFreeform: true,
+      options: [
+        { id: "blue", label: "Blue", description: "The calm one", style: "primary" },
+        { id: "red", label: "red" },
+      ],
+    });
+  });
+
+  it("maps a non-approval confirmation to a confirmation input, or a select when not two options", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(fixture.runtime);
+
+    await handler({ requests: [questionRequest("question-one", {
+      display: "confirmation",
+      options: [{ id: "ship", label: "Ship" }, { id: "hold" }],
+    })] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+    await handler({ requests: [questionRequest("question-two", {
+      display: "confirmation",
+      options: [{ id: "ship" }, { id: "hold" }, { id: "abort" }],
+    })] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    expect(bodies[0]).toMatchObject({
+      type: "confirmation",
+      options: [{ id: "ship", label: "Ship" }, { id: "hold", label: "hold" }],
+    });
+    expect(bodies[1]).toMatchObject({
+      type: "select",
+      options: [{ id: "ship", label: "ship" }, { id: "hold", label: "hold" }, { id: "abort", label: "abort" }],
+    });
+  });
+
+  it("keeps routing approval-shaped confirmations through the receipts-minting approvals API", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(fixture.runtime);
+    const approval = approvalRequest("call-one", "request-one");
+    const question = questionRequest("question-request", { display: "text" });
+
+    await handler({ requests: [approval, question] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+
+    const byUrl = new Map(fetchMock.mock.calls.map(([url, init]) => [
+      String(url),
+      JSON.parse(String(init?.body)) as Record<string, unknown>,
+    ]));
+    expect([...byUrl.keys()].sort()).toEqual([
+      "https://mayi.example/api/approvals/request",
+      "https://mayi.example/api/inputs",
+    ]);
+    const approvalBody = byUrl.get("https://mayi.example/api/approvals/request")!;
+    expect(approvalBody).toMatchObject({ action: approval.action, explanation: approval.prompt });
+    expect(approvalBody).not.toHaveProperty("type");
+    expect(byUrl.get("https://mayi.example/api/inputs")).toMatchObject({ type: "text" });
   });
 
   it("fails closed before calling Mayi when stable host configuration is absent", async () => {

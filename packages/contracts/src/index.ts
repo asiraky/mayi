@@ -6,6 +6,7 @@ export * from "./action";
 export * from "./approval-callback";
 export * from "./canonical";
 export * from "./id";
+export * from "./input";
 
 export const ApprovalState = z.enum(["DRAFT", "PENDING", "APPROVED", "DENIED", "EXPIRED", "CANCELLED"]);
 export type ApprovalState = z.infer<typeof ApprovalState>;

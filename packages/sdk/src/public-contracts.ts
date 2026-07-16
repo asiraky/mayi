@@ -102,3 +102,66 @@ export interface SealedCallbackStateEnvelope {
   nonce: string;
   ciphertext: string;
 }
+
+export type InputType = "text" | "select" | "confirmation";
+export type InputState = "PENDING" | "ANSWERED" | "EXPIRED" | "CANCELLED";
+
+export interface InputOption {
+  id: string;
+  label: string;
+  description?: string | undefined;
+  style?: "danger" | "default" | "primary" | undefined;
+}
+
+export interface InputRequest {
+  type: InputType;
+  prompt: string;
+  options?: InputOption[] | undefined;
+  allowFreeform?: boolean | undefined;
+  expiresInSeconds: number;
+  suggestedApproverId?: string | undefined;
+  callback?: ApprovalCallback | undefined;
+}
+
+export interface InputAnswer {
+  optionId?: string | undefined;
+  text?: string | undefined;
+}
+
+export interface Input {
+  id: string;
+  type: InputType;
+  prompt: string;
+  options: InputOption[] | null;
+  allowFreeform: boolean;
+  state: InputState;
+  answer: InputAnswer | null;
+  attestation: string | null;
+  respondentId: string | null;
+  agentId: string;
+  createdAt: string;
+  expiresAt: string;
+  answeredAt: string | null;
+  cancelledAt: string | null;
+}
+
+interface InputResolvedEventBase {
+  id: string;
+  type: "input.resolved";
+  version: 1;
+  inputId: string;
+  state: string;
+  occurredAt: string;
+}
+
+export type InputResolvedEvent =
+  | (InputResolvedEventBase & {
+    status: "answered";
+    respondent: { id: string; email: string | null };
+    answer: InputAnswer;
+    attestation: string;
+  })
+  | (InputResolvedEventBase & { status: "expired" })
+  | (InputResolvedEventBase & { status: "cancelled" });
+
+export type WebhookEvent = ApprovalResolvedEvent | InputResolvedEvent;
