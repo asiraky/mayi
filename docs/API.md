@@ -59,6 +59,13 @@ echoes `state` unchanged and never parses or logs it.
 
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.
 
+Every account starts with two default notification channels: signup creates a
+born-verified EMAIL destination for the account address with an active
+catch-all rule (signing up asserts ownership of that address), and mobile push
+is fanned out to registered devices unconditionally, with no forwarding row
+required. The code-verification flow in `/api/forwarding/email/start` +
+`/confirm` applies to any additional address a workspace owner adds.
+
 Per-request terminal callbacks are separate from forwarding destinations and
 rules. Forwarding continues to emit only `mayi.approval_pending`.
 
