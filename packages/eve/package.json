@@ -1,6 +1,6 @@
 {
   "name": "@mayiapp/eve",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Durable Mayi approval channel for Eve agents",
   "type": "module",
   "types": "./dist/index.d.ts",
@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@mayiapp/sdk": "workspace:^0.1.0"
+    "@mayiapp/sdk": "workspace:^0.2.0"
   },
   "peerDependencies": {
     "eve": "0.24.2"
