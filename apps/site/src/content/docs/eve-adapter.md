@@ -4,7 +4,7 @@ description: "Gate Eve agent tools behind a human decision with the @mayiapp/eve
 order: 5
 ---
 
-`@mayiapp/eve` is a durable Mayi approval channel for [Eve](https://github.com/vercel/eve) agents. It turns an approval-shaped Eve `input.requested` into a May I? approval, parks the session, and resumes it when a person decides — so an approval-gated tool stays ordinary Eve code. It builds on [`@mayiapp/sdk`](/docs/agent-integration); you don't call the SDK directly.
+`@mayiapp/eve` is a durable Mayi channel for [Eve](https://github.com/vercel/eve) agents. It turns an Eve `input.requested` into a May I? request, parks the session, and resumes it when a person decides — so a human-gated tool stays ordinary Eve code. An approve/deny confirmation becomes a May I? approval (with a signed receipt); every other `ask_question` — text, select, or a non-`approve`/`deny` confirmation — becomes a May I? input (with a signed answer attestation). It builds on [`@mayiapp/sdk`](/docs/agent-integration); you don't call the SDK directly.
 
 ## Install
 
@@ -142,8 +142,16 @@ Keep callback-state keys stable across restarts and deploys; rotate by installin
 
 ## Exports
 
-`mayiChannel`, `UnsupportedMayiInputError`, `MayiEveConfigurationError`, `resolvePublicOrigin`, `MAYI_CALLBACK_PATH`, and the types `MayiChannelConfig`, `MayiChannelState`, `MayiReceiveTarget`, `MayiWebhookEventStore`, `MayiEnvironment`, `MayiEveConfigurationErrorCode`, and `ResolvePublicOriginOptions`.
+`mayiChannel`, `MayiEveConfigurationError`, `resolvePublicOrigin`, `MAYI_CALLBACK_PATH`, and the types `MayiChannelConfig`, `MayiChannelState`, `MayiReceiveTarget`, `MayiWebhookEventStore`, `MayiEnvironment`, `MayiEveConfigurationErrorCode`, and `ResolvePublicOriginOptions`.
 
-## Current limitation
+## Answers beyond approvals
 
-Phase one supports approval-shaped confirmation requests only. A freeform or select `ask_question` raises a descriptive `UnsupportedMayiInputError` rather than becoming an approval. Because Eve 0.24.2 catches and swallows channel event-handler exceptions, that rejection is visible in Eve's server logs but cannot yet be propagated to the author; the session stays parked. Monitor Eve logs for it — it's a residual Eve contract gap, not approval behaviour.
+Only an approve/deny confirmation becomes a May I? **approval** (a binary, non-freeform confirmation whose two option ids are exactly `approve` and `deny`). Every other `ask_question` becomes a May I? **input**, which the same eligible person answers:
+
+- **text** — a `text` ask, or any ask with no options, becomes a text input; the typed answer resumes the session.
+- **confirmation** — a two-option, non-freeform confirmation whose ids aren't `approve`/`deny` (e.g. `yes`/`no`) stays a confirmation; the chosen option id resumes the session.
+- **select** — anything else (more than two options, a `select` display, or a freeform confirmation) becomes a select. A freeform confirmation maps here so the human keeps a typed-answer path; the chosen option id, and any typed text, resume the session.
+
+Every answered input carries a signed **answer attestation** — verifiable against Mayi's JWKS, the input analogue of an approval receipt — delivered and verified over the same callback path.
+
+One residual behaviour: an **expired or cancelled** input has no safe synthetic answer, so the parked Eve session is not resumed. The adapter durably acknowledges the callback (HTTP `208`) to stop redelivery and the session stays parked — so give asks a lifetime the human can realistically meet.
