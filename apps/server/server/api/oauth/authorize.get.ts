@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 :root{color-scheme:light dark;--background:#ecedeb;--card:#f8f9f7;--ink:#15181a;--body:#4a5250;--muted:#6b7472;--border:rgba(21,24,26,.12);--primary:#3d2fd6;--primary-hover:#2a1fb0;--primary-foreground:#ecedeb}
 @media (prefers-color-scheme:dark){:root{--background:#121514;--card:#191d1c;--ink:#e8eae7;--body:#b3bbb8;--muted:#8a938f;--border:rgba(232,234,231,.12);--primary-hover:#4c40fe}}
 *{box-sizing:border-box}
-body{margin:0;padding:24px 16px 48px;background:var(--background);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Roboto,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+body{margin:0;padding:24px 16px 48px;background:var(--background);color:var(--ink);font-family:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Roboto,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .wrap{width:100%;max-width:420px}
 .wordmark{font-size:15px;font-weight:600;letter-spacing:-0.01em;color:var(--ink);margin:0 0 20px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px 24px}

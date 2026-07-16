@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync:theme": "mkdir -p public/fonts && cp ../../packages/theme/theme.js public/theme.js && cp ../../packages/theme/fonts/*.woff2 public/fonts/",
+    "sync:theme": "mkdir -p public && cp ../../packages/theme/theme.js public/theme.js",
     "predev": "pnpm sync:theme",
     "dev": "vite",
     "prebuild": "pnpm --filter @mayiapp/sdk build && pnpm sync:theme",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@fontsource-variable/geist-mono": "^5.2.5",
+    "@fontsource-variable/plus-jakarta-sans": "^5.2.5",
     "@mayi/contracts": "workspace:*",
     "@mayiapp/sdk": "workspace:*",
     "@mayi/theme": "workspace:*",
