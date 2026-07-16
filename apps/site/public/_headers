@@ -8,3 +8,14 @@
 
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
+
+# LLM-facing Markdown twins (llms.txt convention). Serve as UTF-8 plain text so
+# clients read them inline instead of downloading text/markdown.
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+/llms-full.txt
+  Content-Type: text/plain; charset=utf-8
+/docs.md
+  Content-Type: text/plain; charset=utf-8
+/docs/*.md
+  Content-Type: text/plain; charset=utf-8
