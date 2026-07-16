@@ -92,6 +92,12 @@ an open question with `mayi.inputs.cancel(id)`. Answered inputs carry a signed
 answer attestation, and the webhook verifier accepts both `approval.resolved`
 and `input.resolved` events — narrow on `event.type` before resuming work.
 
+The attestation verifies against `/.well-known/jwks.json` for as long as its
+signing key remains published — keys rotate, and the endpoint retains a bounded
+set of previous keys. If you need to re-verify a stored attestation
+indefinitely, verify it on receipt and/or pin the signing public key (the JWT's
+`kid` identifies it) alongside it.
+
 The OAuth host owns the browser Authorization Code + PKCE flow, stores the
 rotating refresh grant, refreshes it when needed, and supplies a current access
 token. The token provider is called for each authenticated request. The SDK

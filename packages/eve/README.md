@@ -269,9 +269,12 @@ Every Eve `ask_question` request routes to one of Mayi's two request APIs:
   text input. A `select` ask maps to a select input; option labels,
   descriptions, and styles map through, and `allowFreeform` passes through
   unchanged. A confirmation whose two options are not approve/deny maps to a
-  confirmation input; a confirmation with any other option count maps to a
-  select input. When the answer arrives, the adapter resumes the parked
-  session with the respondent's chosen option or freeform text.
+  confirmation input; a confirmation with any other option count, or with
+  `allowFreeform`, maps to a select input so the freeform answer path survives
+  (Mayi confirmations forbid freeform). A select or confirmation with no
+  options is a freeform ask and maps to a text input. When the answer arrives,
+  the adapter resumes the parked session with the respondent's chosen option
+  or freeform text.
 
 Artefact evidence is approval-only. Mayi's generic inputs API does not accept
 artefacts, so the `artefacts` hook is not invoked for text, select, or

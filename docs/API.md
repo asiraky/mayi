@@ -108,9 +108,14 @@ Delivery is signed with the same `X-Mayi-Signature` EdDSA JWS as
 The attestation is a durable Mayi-signed JWT recording who answered, what, and
 when: respondent, input type, prompt digest, the answer and its digest, and the
 answered-at time. It deliberately carries no expiry claim — it is provenance an
-agent can persist and re-verify against the published JWKS at any time, not an
-enforcement token. Enforcement — verify-against-action, consume-once — remains
-approval-only, because only an approval authorises a specific action.
+agent can persist and re-verify against the published JWKS, not an enforcement
+token. Signing keys rotate and `/.well-known/jwks.json` retains a bounded set of
+previous keys, so an attestation verifies there for as long as its signing key
+remains published; consumers that need to re-verify indefinitely should verify
+on receipt and/or pin the signing public key (the JWT's `kid` identifies it)
+alongside the stored attestation. Enforcement — verify-against-action,
+consume-once — remains approval-only, because only an approval authorises a
+specific action.
 
 Webhook destinations are ownership-verified at creation, then selected by server-owned forwarding rules. Every delivery carries `X-Mayi-Signature`. Decision assertions are compact JWS values posted to `/api/forwarding/assertions` and must bind the destination, workspace, request, digests, policy, actor, nonce, decision, and time window.
 

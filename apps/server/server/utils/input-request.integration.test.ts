@@ -26,7 +26,10 @@ const ids = {
   agentB: createId(),
   readOnlyAgent: createId(),
   emailDestination: createId(),
+  scopedEmailDestination: createId(),
   webhookDestination: createId(),
+  emailRule: createId(),
+  scopedEmailRule: createId(),
   webhookRule: createId(),
 };
 
@@ -94,13 +97,18 @@ describe.sequential("POST /api/inputs", () => {
       insert into forwarding_destinations (id, workspace_id, type, name, endpoint, mode, verified_at)
       values
         (${ids.emailDestination}, ${ids.workspace}, 'EMAIL', 'Approvers inbox', 'approvers@example.com', 'notify_only', now()),
+        (${ids.scopedEmailDestination}, ${ids.workspace}, 'EMAIL', 'Finance inbox', 'finance@example.com', 'notify_only', now()),
         (${ids.webhookDestination}, ${ids.workspace}, 'WEBHOOK', 'Pending webhook', 'https://8.8.4.4/pending', 'notify_only', now())
     `;
-    // The webhook rule matches everything; inputs must ignore it because rules gate
-    // actions and webhook forwarding stays approval-only.
+    // Inputs email only match-all ('*') EMAIL rules: the action-scoped email rule
+    // must not receive generic asks, and the match-all webhook rule must be ignored
+    // because webhook forwarding stays approval-only.
     await sql`
       insert into forwarding_rules (id, workspace_id, destination_id, action_kind)
-      values (${ids.webhookRule}, ${ids.workspace}, ${ids.webhookDestination}, '*')
+      values
+        (${ids.emailRule}, ${ids.workspace}, ${ids.emailDestination}, '*'),
+        (${ids.scopedEmailRule}, ${ids.workspace}, ${ids.scopedEmailDestination}, 'finance.transfer'),
+        (${ids.webhookRule}, ${ids.workspace}, ${ids.webhookDestination}, '*')
     `;
   });
 
@@ -148,6 +156,8 @@ describe.sequential("POST /api/inputs", () => {
     const queued = await database().sql`
       select type, payload from jobs where payload->>'inputId' = ${inputId} order by type
     `;
+    // Exactly one email job: the match-all EMAIL rule receives the ask, the
+    // action-scoped EMAIL rule does not, and the match-all webhook rule is ignored.
     expect(queued.map((row) => String(row.type))).toEqual([
       "email.input_pending",
       "push.input_pending",
@@ -157,6 +167,8 @@ describe.sequential("POST /api/inputs", () => {
       inputId,
       destinationId: ids.emailDestination,
     });
+    expect(JSON.stringify(queued)).not.toContain(ids.scopedEmailDestination);
+    expect(JSON.stringify(queued)).not.toContain(ids.webhookDestination);
     const storedMetadata = await database().sql`
       select metadata from audit_events where subject_id = ${inputId}
       union all

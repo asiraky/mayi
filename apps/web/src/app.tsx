@@ -73,6 +73,9 @@ export function App() {
   const [inputs, setInputs] = useState<InputItem[]>();
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<Selection | undefined>(linkedSelection);
+  // The server caps the lists, so an older deep-linked request may not be in them;
+  // `byId` holds the direct fetch for the current selection (item: null on failure).
+  const [byId, setById] = useState<{ selection: Selection; item: Approval | InputItem | null }>();
   const [tab, setTab] = useState<Tab>("inbox");
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
@@ -104,6 +107,20 @@ export function App() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  useEffect(() => {
+    if (!selected || !items || !inputs) return;
+    const list: ReadonlyArray<{ id: string }> = selected.kind === "approval" ? items : inputs;
+    if (list.some((item) => item.id === selected.id)) return;
+    // Re-runs whenever the lists reload, so onRefresh={load} also refreshes this item.
+    let stale = false;
+    (selected.kind === "approval" ? api.approval(selected.id) : api.input(selected.id))
+      .then((item) => !stale && setById({ selection: selected, item }))
+      .catch(() => !stale && setById({ selection: selected, item: null }));
+    return () => {
+      stale = true;
+    };
+  }, [selected, items, inputs]);
 
   useEffect(() => {
     if (!session) return;
@@ -154,8 +171,13 @@ export function App() {
     );
   }
 
+  const fetchedById =
+    selected && byId && byId.selection.kind === selected.kind && byId.selection.id === selected.id
+      ? byId
+      : undefined;
+
   if (selected?.kind === "approval") {
-    const current = items.find((item) => item.id === selected.id);
+    const current = items.find((item) => item.id === selected.id) ?? (fetchedById?.item as Approval | null | undefined);
     if (current) {
       return (
         <ApprovalDetail
@@ -170,10 +192,16 @@ export function App() {
   }
 
   if (selected?.kind === "input") {
-    const current = inputs.find((item) => item.id === selected.id);
+    const current = inputs.find((item) => item.id === selected.id) ?? (fetchedById?.item as InputItem | null | undefined);
     if (current) {
       return <InputDetail item={current} api={api} onBack={() => open(undefined)} onRefresh={load} />;
     }
+  }
+
+  // A deep-linked id outside the capped lists: hold the blank state while the by-id
+  // fetch is in flight; a failed fetch falls through to the inbox as before.
+  if (selected && fetchedById === undefined) {
+    return <div className="grid min-h-screen place-items-center text-[14px] text-muted-foreground">Loading…</div>;
   }
 
   async function openTab(next: Tab) {

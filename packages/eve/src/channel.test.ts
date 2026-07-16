@@ -493,6 +493,53 @@ describe("mayiChannel", () => {
     });
   });
 
+  it("maps a freeform confirmation to a select input so the typed answer path survives", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(fixture.runtime);
+
+    await handler({ requests: [questionRequest("question-one", {
+      display: "confirmation",
+      allowFreeform: true,
+      options: [{ id: "ship", label: "Ship" }, { id: "hold" }],
+    })] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+
+    expect(String(fetchMock.mock.calls[0]![0])).toBe("https://mayi.example/api/inputs");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      type: "select",
+      allowFreeform: true,
+      options: [{ id: "ship", label: "Ship" }, { id: "hold", label: "hold" }],
+    });
+  });
+
+  it("maps a select or confirmation ask without options to a text input", async () => {
+    const fetchMock = createFetchMock();
+    const fixture = await runtime(fetchMock);
+    const handler = createInputRequestedHandler(fixture.runtime);
+
+    await handler({ requests: [questionRequest("question-one", {
+      display: "select",
+      options: [],
+    })] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+    await handler({ requests: [questionRequest("question-two", {
+      display: "confirmation",
+    })] }, {
+      state: { rawContinuationToken: "mayi:durable-token", target: {} },
+    }, { session: { id: "eve-session-one" } });
+
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as Record<string, unknown>);
+    for (const body of bodies) {
+      expect(body).toMatchObject({ type: "text", prompt: "Which rollout option?" });
+      expect(body).not.toHaveProperty("options");
+      expect(body).not.toHaveProperty("allowFreeform");
+    }
+  });
+
   it("keeps routing approval-shaped confirmations through the receipts-minting approvals API", async () => {
     const fetchMock = createFetchMock();
     const fixture = await runtime(fetchMock);

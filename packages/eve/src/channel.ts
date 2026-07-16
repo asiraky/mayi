@@ -340,15 +340,19 @@ function toGenericInputRequest(
     ...(option.description === undefined ? {} : { description: option.description }),
     ...(option.style === undefined ? {} : { style: option.style }),
   }));
+  // A question with no options is a freeform ask; Mayi's select requires at least one.
+  if (options.length === 0) return { type: "text", prompt: request.prompt };
   // A missing display keeps its historical confirmation-candidate treatment.
   const display = request.display ?? "confirmation";
-  if (display === "confirmation" && options.length === 2) {
+  // Mayi confirmations forbid allowFreeform, so a freeform confirmation must
+  // become a select to keep the typed answer path alive for the human.
+  if (display === "confirmation" && options.length === 2 && request.allowFreeform !== true) {
     return { type: "confirmation", prompt: request.prompt, options };
   }
   return {
     type: "select",
     prompt: request.prompt,
-    ...(options.length === 0 ? {} : { options }),
+    options,
     ...(request.allowFreeform === undefined ? {} : { allowFreeform: request.allowFreeform }),
   };
 }

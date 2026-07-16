@@ -266,4 +266,30 @@ describe.sequential("POST /api/inputs/:id/answer", () => {
     `;
     expect(audited).toMatchObject({ actor_type: "agent", actor_id: ids.agent });
   });
+
+  it("flips an overdue input to EXPIRED when the agent tries to cancel it", async () => {
+    const { inputId, callbackId } = await createInput({ expired: true });
+    const response = await cancelInput(inputId);
+    const input = await response.json() as Record<string, unknown>;
+    expect(response.status).toBe(200);
+    expect(input).toMatchObject({ state: "EXPIRED", answer: null, cancelledAt: null });
+    const [callback] = await database().sql`
+      select delivery_status, occurred_at from input_callbacks where id = ${callbackId}
+    `;
+    expect(callback!.delivery_status).toBe("READY");
+    expect(callback!.occurred_at).not.toBeNull();
+    const jobs = await database().sql`
+      select id from jobs where type = ${INPUT_CALLBACK_JOB_TYPE} and dedupe_key = ${callbackId}
+    `;
+    expect(jobs).toHaveLength(1);
+    const [audited] = await database().sql`
+      select actor_type, actor_id from audit_events where subject_id = ${inputId} and event_type = 'input.expired'
+    `;
+    expect(audited).toMatchObject({ actor_type: "system", actor_id: null });
+    const cancelledEvents = await database().sql`
+      select id from audit_events where subject_id = ${inputId} and event_type = 'input.cancelled'
+    `;
+    expect(cancelledEvents).toHaveLength(0);
+    expect((await cancelInput(inputId)).status).toBe(409);
+  });
 });
