@@ -1,5 +1,5 @@
 import { actionName, type Approval, type Session } from "@mayi/contracts";
-import { MayiClient } from "@mayi/sdk";
+import { MayiClient } from "@mayiapp/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { StateBadge } from "~/components/state-badge";
 import { ThemeToggle } from "~/components/theme-toggle";

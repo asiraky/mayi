@@ -4,7 +4,7 @@ import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import type { MayiClient } from "@mayi/sdk";
+import type { MayiClient } from "@mayiapp/sdk";
 
 export function Auth({ api, onDone }: { api: MayiClient; onDone: (session: Session) => void }) {
   const [signup, setSignup] = useState(false);

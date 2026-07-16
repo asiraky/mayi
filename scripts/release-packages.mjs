@@ -46,7 +46,7 @@ const accidentallyPublic = workspace.filter((entry) => {
   return manifest.private !== true && !packages.some((item) => item.name === manifest.name);
 });
 if (accidentallyPublic.length > 0) {
-  throw new Error(`Only @mayi/sdk and @mayi/eve may be public; found ${accidentallyPublic.map((item) => item.name).join(", ")}`);
+  throw new Error(`Only @mayiapp/sdk and @mayiapp/eve may be public; found ${accidentallyPublic.map((item) => item.name).join(", ")}`);
 }
 
 const prerelease = packages.filter((item) => item.version.includes("-"));
@@ -63,7 +63,7 @@ if (dryRun) {
 if (process.env.GITHUB_ACTIONS !== "true"
   || process.env.GITHUB_EVENT_NAME !== "pull_request"
   || process.env.GITHUB_HEAD_REF !== "changeset-release/main"
-  || process.env.GITHUB_REF !== "refs/heads/main"
+  || process.env.GITHUB_BASE_REF !== "main"
   || !process.env.GITHUB_WORKFLOW_REF?.includes("/.github/workflows/release.yml@")) {
   throw new Error("Publishing is allowed only for the merged Changesets version PR in release.yml");
 }

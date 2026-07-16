@@ -1,5 +1,5 @@
 {
-  "name": "@mayi/sdk",
+  "name": "@mayiapp/sdk",
   "version": "0.1.0",
   "description": "TypeScript client and verification utilities for May I? approvals",
   "type": "module",

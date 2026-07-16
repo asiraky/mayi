@@ -19,7 +19,7 @@ The approval covers only the submitted action. It does not give the agent a gene
 An agent can request an approval through the in-repository TypeScript client:
 
 ```ts
-import { MayiClient } from "@mayi/sdk";
+import { MayiClient } from "@mayiapp/sdk";
 
 const mayi = new MayiClient({
   origin: "https://mayi.example.com",
@@ -41,9 +41,9 @@ const pending = await mayi.approvals.request({
 console.log(pending.id); // for example: aZbYcXdWeVfU
 ```
 
-The `@mayi/sdk` workspace package builds a publishable npm tarball containing ESM JavaScript, TypeScript declarations, and source maps. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. A signed terminal callback is the normal resume path; polling remains useful only for reconciliation or fallback. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
+The `@mayiapp/sdk` workspace package builds a publishable npm tarball containing ESM JavaScript, TypeScript declarations, and source maps. The request returns a sealed `PENDING` approval immediately and does not hold the process open while a person decides. The caller supplies the idempotency key so retries keep the same identity. A signed terminal callback is the normal resume path; polling remains useful only for reconciliation or fallback. Access tokens, callback state, receipts, and sensitive action input must not be logged; the SDK does not retain OAuth access or refresh tokens.
 
-After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. Tool-call approvals are cooperative: without a versioned executor-owned schema, May I? cannot truthfully mark an arbitrary tool call verified or consumed. See the [`@mayi/sdk` quick start](packages/sdk/README.md), [`@mayi/eve` quick start](packages/eve/README.md), and [API guide](docs/API.md).
+After approval, the executor verifies the signed receipt and recomputes the action digest before doing any work. Tool-call approvals are cooperative: without a versioned executor-owned schema, May I? cannot truthfully mark an arbitrary tool call verified or consumed. See the [`@mayiapp/sdk` quick start](packages/sdk/README.md), [`@mayiapp/eve` quick start](packages/eve/README.md), and [API guide](docs/API.md).
 
 ## Run locally
 

@@ -53,7 +53,7 @@ at `/.well-known/jwks.json`. The version 1 event is intentionally minimal:
 `approver` is present only for approved and denied decisions. `receipt` is
 present only for approved decisions. `id` and `occurredAt` are stable across
 retries and manual replay. Consumers should deduplicate on `id`, verify the
-compact EdDSA JWS against the raw canonical body with `@mayi/sdk`, and return any
+compact EdDSA JWS against the raw canonical body with `@mayiapp/sdk`, and return any
 2xx status for both first acceptance and duplicate acceptance. Mayi stores and
 echoes `state` unchanged and never parses or logs it.
 

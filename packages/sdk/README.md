@@ -1,17 +1,17 @@
-# `@mayi/sdk`
+# `@mayiapp/sdk`
 
 ESM-first TypeScript client and security utilities for [May I?](https://mayi.sh), an approval service for software agents.
 
 ## Install
 
 ```sh
-npm install @mayi/sdk
+npm install @mayiapp/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { MayiClient } from "@mayi/sdk";
+import { MayiClient } from "@mayiapp/sdk";
 
 const mayi = new MayiClient({
   origin: "https://mayi.example.com",
@@ -93,8 +93,8 @@ connection; old tokens remain bound to the old client.
 Security helpers can be imported from the main entry or directly from their subpaths:
 
 ```ts
-import { createCallbackStateCodec } from "@mayi/sdk/callback-state";
-import { createWebhookVerifier } from "@mayi/sdk/webhook-verifier";
+import { createCallbackStateCodec } from "@mayiapp/sdk/callback-state";
+import { createWebhookVerifier } from "@mayiapp/sdk/webhook-verifier";
 ```
 
 Use the state codec to bind opaque callback state to the parked continuation,

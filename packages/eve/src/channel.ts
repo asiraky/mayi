@@ -16,7 +16,7 @@ import {
   type MayiFetch,
   type WebhookVerifier,
   type WebhookVerifierFetch,
-} from "@mayi/sdk";
+} from "@mayiapp/sdk";
 import {
   POST,
   defineChannel,
@@ -192,7 +192,7 @@ export class UnsupportedMayiInputError extends Error {
 
   constructor(requestId: string, display = "unspecified") {
     super(
-      `@mayi/eve supports only tool approval confirmations; Eve input request "${requestId}" uses unsupported display "${display}"`,
+      `@mayiapp/eve supports only tool approval confirmations; Eve input request "${requestId}" uses unsupported display "${display}"`,
     );
     this.name = "UnsupportedMayiInputError";
     this.requestId = requestId;

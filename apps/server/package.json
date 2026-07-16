@@ -24,6 +24,6 @@
     "zod": "^4.4.0"
   },
   "devDependencies": {
-    "@mayi/sdk": "workspace:*"
+    "@mayiapp/sdk": "workspace:*"
   }
 }

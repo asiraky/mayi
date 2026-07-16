@@ -1,6 +1,6 @@
 # Package releases
 
-Mayi publishes exactly two npm packages: `@mayi/sdk` and `@mayi/eve`.
+Mayi publishes exactly two npm packages: `@mayiapp/sdk` and `@mayiapp/eve`.
 `@mayi/contracts` is bundled into the SDK build and remains private, as do all
 other workspace packages. Package versions are independent.
 
@@ -39,9 +39,9 @@ the stable version PR before it can update `latest`.
 
 ## One-time npm and GitHub setup
 
-An owner must supply the `@mayi` npm organization and ownership of both package
+An owner must supply the `@mayiapp` npm organization and ownership of both package
 records. Do not merge a version PR until both packages expose npm package
-settings. For **each** of `@mayi/sdk` and `@mayi/eve`, configure this exact npm
+settings. For **each** of `@mayiapp/sdk` and `@mayiapp/eve`, configure this exact npm
 Trusted Publisher:
 
 | npm field | Exact value |
@@ -84,7 +84,7 @@ verification job and `pnpm release:dry-run`; no publish job is eligible on a
 publish, npm publish, git push, or GitHub release creation.
 
 Each published package gets its own immutable tag and GitHub release, such as
-`@mayi/sdk@0.2.0`, at the exact version-PR merge commit. Release notes come from
+`@mayiapp/sdk@0.2.0`, at the exact version-PR merge commit. Release notes come from
 that package's generated changelog. Existing npm versions and tags are never
 overwritten.
 

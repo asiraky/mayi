@@ -4,7 +4,7 @@ import {
   createCallbackStateCodec,
   createWebhookVerifier,
   type CallbackStateCodec,
-} from "@mayi/sdk";
+} from "@mayiapp/sdk";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { canonicalize } from "../../contracts/src/canonical";
 import { createId } from "../../contracts/src/id";
