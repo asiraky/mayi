@@ -1,5 +1,6 @@
 ---
 import MarketingLayout from "../layouts/MarketingLayout.astro";
+import ReceiptMark from "../components/ReceiptMark.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import { APP_URL } from "../consts";
 
@@ -89,7 +90,10 @@ const faqs = [
   description="A human-in-the-loop approval service for agents. The action waits, exactly as filed, until one person answers, and the receipt proves what they saw."
 >
   <header class="mx-auto flex w-[min(980px,100%-3rem)] items-center justify-between pt-8">
-    <a href="/" class="text-[15px] font-semibold">May I?</a>
+    <a href="/" class="flex items-center gap-2 text-[15px] font-semibold" aria-label="May I? home">
+      <ReceiptMark class="h-[19px] w-[19px]" />
+      May I?
+    </a>
     <nav aria-label="Main" class="flex items-center gap-6 text-[13px] text-muted-foreground">
       <a href="#how" class="hidden hover:text-foreground sm:block">How it works</a>
       <a href="/docs" class="hover:text-foreground">Docs</a>

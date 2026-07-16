@@ -1,5 +1,6 @@
 ---
 import { Font } from "astro:assets";
+import ReceiptMark from "../components/ReceiptMark.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import { APP_URL } from "../consts";
 import "../styles/tailwind.css";
@@ -20,6 +21,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <meta name="theme-color" content="#ecedeb" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
     {/* Blocking and ahead of the fonts on purpose: it must set the `dark` class before
@@ -33,7 +35,10 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     class="min-h-screen overflow-x-hidden bg-background font-suisse text-foreground antialiased selection:bg-primary selection:text-primary-foreground"
   >
     <header class="mx-auto flex w-[min(980px,100%-3rem)] items-center justify-between pt-8">
-      <a href="/" class="text-[15px] font-semibold" aria-label="May I? home">May I?</a>
+      <a href="/" class="flex items-center gap-2 text-[15px] font-semibold" aria-label="May I? home">
+        <ReceiptMark class="h-[19px] w-[19px]" />
+        May I?
+      </a>
       <nav aria-label="Main" class="flex items-center gap-6 text-[13px] text-muted-foreground">
         <a href="/docs" class="hover:text-foreground">Docs</a>
         <a href="https://github.com/asiraky/mayi" class="hidden hover:text-foreground sm:block">Source</a>

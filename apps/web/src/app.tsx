@@ -1,6 +1,7 @@
 import { actionName, type Approval, type Session } from "@mayi/contracts";
 import { MayiClient } from "@mayiapp/sdk";
 import { useCallback, useEffect, useState } from "react";
+import { ReceiptMark } from "~/components/receipt-mark";
 import { StateBadge } from "~/components/state-badge";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
@@ -166,7 +167,10 @@ export function App() {
     <>
       <header className="border-b border-border">
         <div className="mx-auto flex w-[min(980px,100%-3rem)] items-center justify-between py-4">
-          <span className="text-[15px] font-semibold">May I?</span>
+          <span className="flex items-center gap-2 text-[15px] font-semibold">
+            <ReceiptMark className="h-[19px] w-[19px]" />
+            May I?
+          </span>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button
