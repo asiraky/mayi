@@ -56,7 +56,16 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt,
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
-});
+}, (t) => [index("sessions_user_idx").on(t.userId)]);
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: identifier("id").primaryKey(),
+  userId: identifier("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt,
+  usedAt: timestamp("used_at", { withTimezone: true }),
+}, (t) => [index("password_reset_tokens_user_idx").on(t.userId)]);
 
 export const oauthClients = pgTable("oauth_clients", {
   id: identifier("id").primaryKey(),

@@ -93,6 +93,9 @@ export const Signup = z.object({
 });
 export const Signin = z.object({ email: z.email(), password: z.string().min(1).max(256) });
 
+export const PasswordResetRequest = z.object({ email: z.email() });
+export const PasswordResetConfirm = z.object({ token: z.string().min(1).max(256), password: Password });
+
 export const AgentGrant = z.object({
   id: Id,
   name: z.string(),

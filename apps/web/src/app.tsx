@@ -12,6 +12,7 @@ import { relativeTime } from "~/lib/format";
 import { ApprovalDetail } from "~/screens/approval-detail";
 import { Auth } from "~/screens/auth";
 import { InputDetail } from "~/screens/input-detail";
+import { ResetPassword } from "~/screens/reset-password";
 
 const api = new MayiClient({
   origin: location.origin,
@@ -80,6 +81,13 @@ export function App() {
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
   const [secret, setSecret] = useState("");
+  // The reset email deep-links to ?reset=<token>; like linkedSelection, the URL
+  // is the source of truth, and the flow must work with or without a session.
+  const [resetToken, setResetToken] = useState<string | null>(() => new URLSearchParams(location.search).get("reset"));
+  // How the Auth screen should open once we hand back to it (set only by the
+  // reset flow; cleared on the next successful auth). One value, so the mode
+  // and notice can never drift apart or leak into a later manual sign-out.
+  const [authStart, setAuthStart] = useState<{ mode: "signin" | "forgot"; notice?: string }>();
 
   const load = useCallback(async () => {
     try {
@@ -103,7 +111,10 @@ export function App() {
 
   useEffect(() => {
     api.session().then(setSession).catch(() => setSession(null));
-    const onPop = () => setSelected(linkedSelection());
+    const onPop = () => {
+      setSelected(linkedSelection());
+      setResetToken(new URLSearchParams(location.search).get("reset"));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -134,6 +145,36 @@ export function App() {
     void load();
   }, [session, load]);
 
+  // Above both session gates: the reset token authenticates the change on its
+  // own, so the view renders whether the viewer is signed in, out, or loading.
+  if (resetToken) {
+    const clearResetParam = () => {
+      const url = new URL(location.href);
+      url.searchParams.delete("reset");
+      history.replaceState(null, "", url);
+      setResetToken(null);
+    };
+    return (
+      <ResetPassword
+        api={api}
+        token={resetToken}
+        onSuccess={() => {
+          clearResetParam();
+          // The server revoked every session for the account, so sign out here too.
+          setSession(null);
+          setAuthStart({ mode: "signin", notice: "Your password has been updated. Sign in with your new password." });
+        }}
+        onRequestNew={() => {
+          clearResetParam();
+          // Sign out so the Auth screen actually mounts (a still-signed-in viewer
+          // would otherwise fall through to the dashboard) and lands on forgot.
+          setSession(null);
+          setAuthStart({ mode: "forgot" });
+        }}
+      />
+    );
+  }
+
   if (session === undefined) {
     return <div className="grid min-h-screen place-items-center text-[14px] text-muted-foreground">Loading…</div>;
   }
@@ -142,8 +183,11 @@ export function App() {
     return (
       <Auth
         api={api}
+        notice={authStart?.notice}
+        initialMode={authStart?.mode ?? "signin"}
         onDone={(value) => {
           setSession(value);
+          setAuthStart(undefined);
           // The OAuth consent flow parks its return URL here; resume it once signed in.
           const returnTo = new URLSearchParams(location.search).get("returnTo");
           if (returnTo?.startsWith("/api/oauth/authorize?")) location.assign(returnTo);
@@ -260,6 +304,11 @@ export function App() {
             May I?
           </span>
           <div className="flex items-center gap-2">
+            {/* A deep-linked request opened under the wrong account should be
+                visibly attributable to whoever is signed in. */}
+            <span className="hidden text-[12px] text-muted-foreground sm:inline">
+              Signed in as {session.user.email}
+            </span>
             <ThemeToggle />
             <Button
               variant="ghost"

@@ -451,6 +451,59 @@ describe("MayiClient safe failures", () => {
   });
 });
 
+describe("MayiClient password reset", () => {
+  it("requests a reset link with cookie credentials and a JSON body", async () => {
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse({ ok: true }));
+    const client = new MayiClient({ origin: "https://mayi.example", fetch: fetchMock });
+
+    await expect(client.passwordResetRequest({ email: "person@example.com" })).resolves.toEqual({ ok: true });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const { headers, body } = captured(init);
+    expect(String(url)).toBe("https://mayi.example/api/auth/password-reset/request");
+    expect(init?.method).toBe("POST");
+    expect(init?.credentials).toBe("include");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(headers.has("authorization")).toBe(false);
+    expect(JSON.parse(body!)).toEqual({ email: "person@example.com" });
+  });
+
+  it("confirms a reset with the token and new password", async () => {
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse({ ok: true }));
+    const client = new MayiClient({ origin: "https://mayi.example", fetch: fetchMock });
+
+    await expect(client.passwordResetConfirm({ token: "reset-token", password: "n3w-Passw0rd!" })).resolves.toEqual({ ok: true });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const { headers, body } = captured(init);
+    expect(String(url)).toBe("https://mayi.example/api/auth/password-reset/confirm");
+    expect(init?.method).toBe("POST");
+    expect(headers.get("content-type")).toBe("application/json");
+    expect(JSON.parse(body!)).toEqual({ token: "reset-token", password: "n3w-Passw0rd!" });
+  });
+
+  it("surfaces an invalid or expired token as a 400 without exposing the body", async () => {
+    const secret = "token-diagnostic-secret";
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      fetch: async () => jsonResponse({ message: secret }, { status: 400 }),
+    });
+    const error = await client.passwordResetConfirm({ token: "stale", password: "n3w-Passw0rd!" }).catch((cause) => cause);
+    expect(error).toBeInstanceOf(MayiHttpError);
+    expect(error).toMatchObject({ status: 400 });
+    expectSecretSafe(error, secret);
+  });
+
+  it("surfaces a weak password as a 422", async () => {
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      fetch: async () => jsonResponse({ message: "weak" }, { status: 422 }),
+    });
+    await expect(client.passwordResetConfirm({ token: "reset-token", password: "short" }))
+      .rejects.toMatchObject({ name: "MayiHttpError", status: 422 });
+  });
+});
+
 describe("MayiClient artifact and browser workflows", () => {
   it("stages request-bound evidence with an ordinal and stable idempotency key", async () => {
     const uploaded = {

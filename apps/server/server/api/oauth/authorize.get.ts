@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, getQuery, sendRedirect } from "h3";
-import { requireUser } from "../../utils/auth";
+import { requireUser, type UserAuth } from "../../utils/auth";
 import { database } from "../../utils/runtime";
 
 function escape(value: string): string { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!); }
@@ -11,8 +11,9 @@ export default defineEventHandler(async (event) => {
   const challenge = String(query.code_challenge ?? "");
   const scope = String(query.scope ?? "approval:create approval:read approval:cancel");
   if (query.response_type !== "code" || query.code_challenge_method !== "S256" || !challenge) throw createError({ statusCode: 400, statusMessage: "Authorization code with PKCE S256 is required" });
+  let auth: UserAuth;
   try {
-    await requireUser(event);
+    auth = await requireUser(event);
   } catch (error) {
     // Only a missing/expired session means "go sign in"; a server failure must
     // surface instead of bouncing the user to a sign-in page they can't use.
@@ -34,6 +35,14 @@ export default defineEventHandler(async (event) => {
     "approval:cancel": "Cancel approvals",
   };
   const scopeItems = scopes.map((item) => `<li>${escape(scopeLabels[item] ?? item)}</li>`).join("");
+  const [identity] = await database().sql`select u.email, w.name from users u, workspaces w where u.id = ${auth.userId} and w.id = ${auth.workspaceId}`;
+  // Signing out redirects back to this same authorize URL; the now-unauthenticated
+  // request bounces through the signin redirect above, so consent resumes after
+  // the right person signs in.
+  const currentUrl = event.node.req.url ?? event.path;
+  const identityBlock = identity
+    ? `<p class="identity">Signed in as ${escape(String(identity.email))} · workspace ${escape(String(identity.name))}</p><form method="post" action="/api/auth/signout"><input type="hidden" name="returnTo" value="${escape(currentUrl)}"><button class="signout" type="submit">Not you? Sign out</button></form>`
+    : "";
   event.node.res.setHeader("content-type", "text/html; charset=utf-8");
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect agent — May I?</title><style>
 :root{color-scheme:light dark;--background:#ecedeb;--card:#f8f9f7;--ink:#15181a;--body:#4a5250;--muted:#6b7472;--border:rgba(21,24,26,.12);--primary:#3d2fd6;--primary-hover:#2a1fb0;--primary-foreground:#ecedeb}
@@ -57,6 +66,8 @@ button{appearance:none;width:100%;min-height:44px;padding:12px 18px;border-radiu
 .deny:hover{border-color:var(--muted)}
 button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .footnote{color:var(--muted);font-size:12px;line-height:1.5;margin:20px 0 0}
+.identity{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 2px;overflow-wrap:break-word}
+.signout{appearance:none;background:none;border:none;padding:0;margin:0 0 16px;width:auto;min-height:0;color:var(--muted);font:inherit;font-size:12px;font-weight:500;text-decoration:underline;cursor:pointer}
 @media (min-width:480px){.actions{flex-direction:row}.actions button{width:auto;flex:1}}
-</style></head><body><div class="wrap"><p class="wordmark">May I?</p><main class="card"><p class="kicker">Connection request</p><h1>Connect ${escape(String(client.name))}?</h1><p class="prose">This agent is asking to act in your current workspace. It will be able to:</p><ul class="scopes">${scopeItems}</ul><form method="post" action="/api/oauth/consent"><input type="hidden" name="client_id" value="${escape(clientId)}"><input type="hidden" name="redirect_uri" value="${escape(redirectUri)}"><input type="hidden" name="code_challenge" value="${escape(challenge)}"><input type="hidden" name="scope" value="${escape(scope)}"><input type="hidden" name="state" value="${escape(String(query.state ?? ""))}"><div class="actions"><button class="allow" name="decision" value="approve">Allow</button><button class="deny" name="decision" value="deny">Deny</button></div></form></main><p class="footnote">Denying returns you to the agent without granting any access.</p></div></body></html>`;
+</style></head><body><div class="wrap"><p class="wordmark">May I?</p><main class="card"><p class="kicker">Connection request</p><h1>Connect ${escape(String(client.name))}?</h1><p class="prose">This agent is asking to act in your current workspace. It will be able to:</p><ul class="scopes">${scopeItems}</ul>${identityBlock}<form method="post" action="/api/oauth/consent"><input type="hidden" name="client_id" value="${escape(clientId)}"><input type="hidden" name="redirect_uri" value="${escape(redirectUri)}"><input type="hidden" name="code_challenge" value="${escape(challenge)}"><input type="hidden" name="scope" value="${escape(scope)}"><input type="hidden" name="state" value="${escape(String(query.state ?? ""))}"><div class="actions"><button class="allow" name="decision" value="approve">Allow</button><button class="deny" name="decision" value="deny">Deny</button></div></form></main><p class="footnote">Denying returns you to the agent without granting any access.</p></div></body></html>`;
 });
