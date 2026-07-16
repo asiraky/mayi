@@ -1,7 +1,7 @@
 ---
 title: "Cloudflare deployment"
 description: "How the public site and application are split on Cloudflare."
-order: 3
+order: 6
 ---
 
 The public site is a static Astro build deployed as Cloudflare Worker assets at `mayi.sh`. Its pages are built from Markdown in `apps/site/src/content`.
