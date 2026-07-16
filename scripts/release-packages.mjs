@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const PUBLIC_PACKAGES = ["packages/sdk", "packages/eve"];
 const EXPECTED_REPOSITORY = "https://github.com/asiraky/mayi";
@@ -144,8 +145,20 @@ if (unpublished.length > 0) {
 }
 
 for (const item of intended) {
-  const published = run("npm", ["view", `${item.name}@${item.version}`, "version", "--json"], { capture: true });
-  if (JSON.parse(published.stdout) !== item.version) throw new Error(`npm did not return ${item.name}@${item.version}`);
+  // The registry is read-after-write inconsistent immediately after publishing.
+  let confirmed = false;
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const published = run("npm", ["view", `${item.name}@${item.version}`, "version", "--json"], {
+      capture: true,
+      allowFailure: true,
+    });
+    if (published.status === 0 && JSON.parse(published.stdout) === item.version) {
+      confirmed = true;
+      break;
+    }
+    if (attempt < 6) await sleep(10_000);
+  }
+  if (!confirmed) throw new Error(`npm did not return ${item.name}@${item.version}`);
 
   const tag = `${item.name}@${item.version}`;
   if (!existingRemoteTags.has(tag)) {
