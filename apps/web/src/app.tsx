@@ -304,11 +304,6 @@ export function App() {
             May I?
           </span>
           <div className="flex items-center gap-2">
-            {/* A deep-linked request opened under the wrong account should be
-                visibly attributable to whoever is signed in. */}
-            <span className="hidden text-[12px] text-muted-foreground sm:inline">
-              Signed in as {session.user.email}
-            </span>
             <ThemeToggle />
             <Button
               variant="ghost"
@@ -326,16 +321,18 @@ export function App() {
       </header>
 
       <main className="mx-auto w-[min(980px,100%-3rem)] py-10">
-        <p className="text-[11px] font-medium tracking-[0.09em] text-muted-foreground uppercase">
-          {session.workspace.name}
-        </p>
-
-        <Tabs value={tab} onValueChange={(value) => void openTab(value as Tab)} className="mt-5">
-          {/* Full width on phones so four tabs share the row evenly; natural width
-              once there is room. */}
-          <TabsList className="w-full sm:w-fit">
+        <Tabs value={tab} onValueChange={(value) => void openTab(value as Tab)}>
+          {/* An underlined nav bar spanning the content width: each tab gets room
+              to breathe and the active one is marked by the rule beneath it. */}
+          {/* pb-[5px] lifts the tab content so the active underline (which the line
+              variant floats 5px below each trigger) lands exactly on the rule. */}
+          <TabsList variant="line" className="h-auto w-full justify-start gap-2 border-b border-border p-0 pb-[5px]">
             {TABS.map((name) => (
-              <TabsTrigger key={name} value={name} className="capitalize">
+              <TabsTrigger
+                key={name}
+                value={name}
+                className="flex-none px-4 pt-1 pb-3 text-[14px] capitalize"
+              >
                 {name}
               </TabsTrigger>
             ))}

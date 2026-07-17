@@ -62,9 +62,6 @@ export function ResetPassword({
           <ReceiptMark className="h-8 w-8" />
           Set a new password
         </h1>
-        <p className="mt-2 text-[15px] leading-[1.6] text-body">
-          Choose a new password for your May I? account.
-        </p>
 
         {expired ? (
           <>
