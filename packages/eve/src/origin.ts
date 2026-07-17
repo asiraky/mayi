@@ -63,6 +63,10 @@ function isNonPublicHostname(hostname: string): boolean {
     || lower.endsWith(".local")
     || lower.endsWith(".internal")
     || !lower.includes(".")
+    // A trailing DNS dot is equivalent to the undotted name but defeats every
+    // string comparison here (suffix refusals, transient-preview matching),
+    // while Mayi's server strips it before validating — so refuse it outright.
+    || lower.endsWith(".")
   ) return true;
 
   // Durable callback origins should be DNS names. Refusing every IP literal
@@ -70,7 +74,11 @@ function isNonPublicHostname(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(lower) || lower.includes(":");
 }
 
-function normalizePublicHttpsBase(value: string): string {
+// Mayi's callback contract caps registered URIs at 2048 characters, so the
+// base must leave room for the callback path the adapter appends.
+const MAX_PUBLIC_BASE_LENGTH = 2_048 - MAYI_CALLBACK_PATH.length;
+
+function normalizePublicHttpsBase(value: string, options: { readonly allowPathPrefix: boolean }): string {
   try {
     const url = new URL(value);
     if (
@@ -80,16 +88,19 @@ function normalizePublicHttpsBase(value: string): string {
       || url.search
       || url.hash
       || url.port
+      || (!options.allowPathPrefix && url.pathname !== "/")
       || isNonPublicHostname(url.hostname)
     ) throw new Error("invalid base");
     // Path-routed hosts (a shared hostname whose ingress routes a prefix to
     // this instance) inject a path-bearing base; normalize away trailing
     // slashes so joining MAYI_CALLBACK_PATH always yields a single slash.
-    return `${url.origin}${url.pathname.replace(/\/+$/u, "")}`;
+    const base = `${url.origin}${url.pathname.replace(/\/+$/u, "")}`;
+    if (base.length > MAX_PUBLIC_BASE_LENGTH) throw new Error("invalid base");
+    return base;
   } catch {
     throw new MayiEveConfigurationError(
       "INVALID_PUBLIC_ORIGIN",
-      "The Eve public base URL must be public HTTPS without credentials, query, fragment, or non-default port",
+      "The Eve public base URL must be public HTTPS without credentials, query, fragment, or non-default port, and short enough for a registrable callback URL",
     );
   }
 }
@@ -116,21 +127,26 @@ function assertNotTransientPreview(base: string, environment: MayiEnvironment): 
 export function resolvePublicOrigin(options: ResolvePublicOriginOptions = {}): string {
   const environment = options.environment ?? runtimeEnvironment();
   if (environment.EVE_PUBLIC_ORIGIN !== undefined) {
-    const base = normalizePublicHttpsBase(environment.EVE_PUBLIC_ORIGIN);
+    const base = normalizePublicHttpsBase(environment.EVE_PUBLIC_ORIGIN, { allowPathPrefix: true });
     assertNotTransientPreview(base, environment);
     return base;
   }
 
   if (environment.VERCEL_ENV === "production" && environment.VERCEL_PROJECT_PRODUCTION_URL) {
     const value = environment.VERCEL_PROJECT_PRODUCTION_URL;
-    const base = normalizePublicHttpsBase(value.includes("://") ? value : `https://${value}`);
+    // Vercel gives every deployment its own hostname, so a path here can only
+    // be a misconfiguration; keep the fallback origin-only as before.
+    const base = normalizePublicHttpsBase(
+      value.includes("://") ? value : `https://${value}`,
+      { allowPathPrefix: false },
+    );
     assertNotTransientPreview(base, environment);
     return base;
   }
 
   const production = environment.NODE_ENV === "production" || environment.VERCEL_ENV === "production";
   if (!production && options.developmentOverride !== undefined) {
-    const base = normalizePublicHttpsBase(options.developmentOverride);
+    const base = normalizePublicHttpsBase(options.developmentOverride, { allowPathPrefix: true });
     assertNotTransientPreview(base, environment);
     return base;
   }

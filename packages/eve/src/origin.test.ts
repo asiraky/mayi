@@ -60,10 +60,44 @@ describe("resolvePublicOrigin", () => {
 
   it.each([
     ["https://eden.example/e/abc123def456/", "https://eden.example/e/abc123def456"],
+    ["https://eden.example/e/abc123def456///", "https://eden.example/e/abc123def456"],
     ["https://agent.example/", "https://agent.example"],
+    ["https://agent.example///", "https://agent.example"],
     ["https://agent.example", "https://agent.example"],
-  ])("normalizes trailing slashes on %s", (input, expected) => {
+    // WHATWG parsing drops the default HTTPS port before validation, exactly
+    // as it always has for root origins.
+    ["https://agent.example:443/e/abc123def456", "https://agent.example/e/abc123def456"],
+  ])("normalizes %s", (input, expected) => {
     expect(resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: input } })).toBe(expected);
+  });
+
+  it("bounds the base so the joined callback URL stays registrable", () => {
+    const prefix = "https://eden.example/e/";
+    const fits = `${prefix}${"a".repeat(2_018 - prefix.length)}`;
+    expect(resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: fits } })).toBe(fits);
+    expect(() => resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: `${fits}a` } }))
+      .toThrow(errorCode("INVALID_PUBLIC_ORIGIN"));
+  });
+
+  it("refuses trailing-dot hostnames that would evade transient-preview matching", () => {
+    expect(() => resolvePublicOrigin({
+      environment: {
+        EVE_PUBLIC_ORIGIN: "https://project-git-feature-team.vercel.app./e/abc123def456",
+        VERCEL_ENV: "preview",
+        VERCEL_URL: "project-git-feature-team.vercel.app",
+      },
+    })).toThrow(errorCode("INVALID_PUBLIC_ORIGIN"));
+    expect(() => resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: "https://agent.example." } }))
+      .toThrow(errorCode("INVALID_PUBLIC_ORIGIN"));
+  });
+
+  it("keeps the Vercel production fallback origin-only", () => {
+    expect(() => resolvePublicOrigin({
+      environment: {
+        VERCEL_ENV: "production",
+        VERCEL_PROJECT_PRODUCTION_URL: "stable-project.vercel.app/e/wrong",
+      },
+    })).toThrow(errorCode("INVALID_PUBLIC_ORIGIN"));
   });
 
   it("refuses transient preview hostnames even with a path prefix", () => {

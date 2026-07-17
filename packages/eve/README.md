@@ -166,8 +166,9 @@ POST /eve/v1/mayi/approval-resolved
 
 Authors do not create that route, its URL, encrypted state, a correlation table,
 or a signature verifier. The adapter builds the callback URL from the stable
-public Eve origin. Register that exact HTTPS URL as an
-entry in `approval_callback_uris` for the Eden/host OAuth client.
+public Eve base URL (including any path prefix on path-routed hosts). Register
+that exact HTTPS URL as an entry in `approval_callback_uris` for the Eden/host
+OAuth client.
 
 The explicit `POST()` route is intentional. Eve 0.24.2 compiles a channel
 `route.path` verbatim; it does not prepend a channel namespace. Inventing a
@@ -243,8 +244,9 @@ receipts, or sensitive tool input.
 
 - **Public base URL:** set `EVE_PUBLIC_ORIGIN` to one stable public HTTPS base
   URL (origin plus an optional path prefix for path-routed hosts). Vercel
-  production can use `VERCEL_PROJECT_PRODUCTION_URL`; preview URLs, localhost,
-  query strings, ports, and private hosts are refused.
+  production can use `VERCEL_PROJECT_PRODUCTION_URL` (origin only — no path);
+  preview URLs, localhost, query strings, non-default ports, and private hosts
+  are refused.
 - **Origin changes:** `approval_callback_uris` are immutable. Register a new
   OAuth client with the new callback, reconnect through Authorization Code +
   PKCE, confirm the new agent works, then revoke the old agent connection.

@@ -132,7 +132,7 @@ The duplicate check runs only after webhook verification, and `markProcessed` on
 
 The deployment host provisions these environment variables:
 
-- `EVE_PUBLIC_ORIGIN` — the stable public HTTPS base URL of the deployed agent: an origin (`https://agent.example`), or an origin plus a path prefix (`https://eden.example/e/abc123def456`) on hosts that route instances by path prefix on a shared hostname. Not a preview URL, localhost, query string, or port. On path-routed hosts the platform's ingress must strip the prefix before requests reach the instance — the adapter's registered callback route is always exactly `MAYI_CALLBACK_PATH`.
+- `EVE_PUBLIC_ORIGIN` — the stable public HTTPS base URL of the deployed agent: an origin (`https://agent.example`), or an origin plus a path prefix (`https://eden.example/e/abc123def456`) on hosts that route instances by path prefix on a shared hostname. Not a preview URL, localhost, query string, or non-default port. On path-routed hosts the platform's ingress must strip the prefix before requests reach the instance — the adapter's registered callback route is always exactly `MAYI_CALLBACK_PATH`.
 - `MAYI_CALLBACK_STATE_KEY_ID` — identifier for the current callback-state key.
 - `MAYI_CALLBACK_STATE_KEY` — a stable base64url 32-byte encryption key.
 - `MAYI_CALLBACK_STATE_PREVIOUS_KEYS` (optional) — JSON array of decrypt-only `{ "kid", "key" }` entries kept during key rotation.
