@@ -85,16 +85,9 @@ export function Auth({
           <ReceiptMark className="h-8 w-8" />
           May I?
         </h1>
-        <p className="mt-2 text-[15px] leading-[1.6] text-body">
-          {mode === "signup"
-            ? "A workspace holds the requests your agents raise, and the receipts you sign."
-            : mode === "forgot" || mode === "forgot-sent"
-              ? "Enter your email and we'll send you a link to reset your password."
-              : "Review the exact action before an agent takes it."}
-        </p>
 
         {notice && mode === "signin" && (
-          <p aria-live="polite" className="mt-4 text-[13px] text-muted-foreground">
+          <p aria-live="polite" className="mt-6 text-[13px] text-muted-foreground">
             {notice}
           </p>
         )}
