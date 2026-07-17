@@ -52,6 +52,30 @@ describe("resolvePublicOrigin", () => {
     })).toThrow(errorCode("PREVIEW_ORIGIN_REFUSED"));
   });
 
+  it("accepts a path-bearing public base URL for path-routed hosts", () => {
+    expect(resolvePublicOrigin({
+      environment: { EVE_PUBLIC_ORIGIN: "https://eden.example/e/abc123def456" },
+    })).toBe("https://eden.example/e/abc123def456");
+  });
+
+  it.each([
+    ["https://eden.example/e/abc123def456/", "https://eden.example/e/abc123def456"],
+    ["https://agent.example/", "https://agent.example"],
+    ["https://agent.example", "https://agent.example"],
+  ])("normalizes trailing slashes on %s", (input, expected) => {
+    expect(resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: input } })).toBe(expected);
+  });
+
+  it("refuses transient preview hostnames even with a path prefix", () => {
+    expect(() => resolvePublicOrigin({
+      environment: {
+        EVE_PUBLIC_ORIGIN: "https://project-git-feature-team.vercel.app/e/abc123def456",
+        VERCEL_ENV: "preview",
+        VERCEL_URL: "project-git-feature-team.vercel.app",
+      },
+    })).toThrow(errorCode("PREVIEW_ORIGIN_REFUSED"));
+  });
+
   it.each([
     "http://agent.example",
     "https://localhost",
@@ -59,10 +83,14 @@ describe("resolvePublicOrigin", () => {
     "https://agent.internal",
     "https://user:password@agent.example",
     "https://agent.example:8443",
-    "https://agent.example/callback",
     "https://agent.example?secret=bypass-token",
-  ])("fails closed for non-public origin %s", (origin) => {
-    expect(() => resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: origin } }))
+    "https://agent.example/callback#fragment",
+    "https://agent.example/callback?secret=bypass-token",
+    "https://user:password@agent.example/callback",
+    "https://agent.example:8443/callback",
+    "https://localhost/callback",
+  ])("fails closed for non-public base %s", (base) => {
+    expect(() => resolvePublicOrigin({ environment: { EVE_PUBLIC_ORIGIN: base } }))
       .toThrow(errorCode("INVALID_PUBLIC_ORIGIN"));
   });
 

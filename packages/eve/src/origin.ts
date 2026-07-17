@@ -70,30 +70,32 @@ function isNonPublicHostname(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(lower) || lower.includes(":");
 }
 
-function normalizePublicHttpsOrigin(value: string): string {
+function normalizePublicHttpsBase(value: string): string {
   try {
     const url = new URL(value);
     if (
       url.protocol !== "https:"
       || url.username
       || url.password
-      || url.pathname !== "/"
       || url.search
       || url.hash
       || url.port
       || isNonPublicHostname(url.hostname)
-    ) throw new Error("invalid origin");
-    return url.origin;
+    ) throw new Error("invalid base");
+    // Path-routed hosts (a shared hostname whose ingress routes a prefix to
+    // this instance) inject a path-bearing base; normalize away trailing
+    // slashes so joining MAYI_CALLBACK_PATH always yields a single slash.
+    return `${url.origin}${url.pathname.replace(/\/+$/u, "")}`;
   } catch {
     throw new MayiEveConfigurationError(
       "INVALID_PUBLIC_ORIGIN",
-      "The Eve public origin must be a public HTTPS origin without credentials, a path, query, fragment, or non-default port",
+      "The Eve public base URL must be public HTTPS without credentials, query, fragment, or non-default port",
     );
   }
 }
 
-function assertNotTransientPreview(origin: string, environment: MayiEnvironment): void {
-  const hostname = new URL(origin).hostname.toLowerCase();
+function assertNotTransientPreview(base: string, environment: MayiEnvironment): void {
+  const hostname = new URL(base).hostname.toLowerCase();
   const productionHostname = hostnameFromEnvironmentUrl(environment.VERCEL_PROJECT_PRODUCTION_URL);
   const transientHostnames = [environment.VERCEL_URL, environment.VERCEL_BRANCH_URL]
     .map(hostnameFromEnvironmentUrl)
@@ -106,27 +108,31 @@ function assertNotTransientPreview(origin: string, environment: MayiEnvironment)
   }
 }
 
-/** Resolves the stable origin Eve exposes publicly for durable callbacks. */
+/**
+ * Resolves the stable public HTTPS base URL Eve exposes for durable callbacks:
+ * an origin plus an optional path prefix (no trailing slash), so path-routed
+ * hosts such as `https://eden.example/e/abc123def456` are supported.
+ */
 export function resolvePublicOrigin(options: ResolvePublicOriginOptions = {}): string {
   const environment = options.environment ?? runtimeEnvironment();
   if (environment.EVE_PUBLIC_ORIGIN !== undefined) {
-    const origin = normalizePublicHttpsOrigin(environment.EVE_PUBLIC_ORIGIN);
-    assertNotTransientPreview(origin, environment);
-    return origin;
+    const base = normalizePublicHttpsBase(environment.EVE_PUBLIC_ORIGIN);
+    assertNotTransientPreview(base, environment);
+    return base;
   }
 
   if (environment.VERCEL_ENV === "production" && environment.VERCEL_PROJECT_PRODUCTION_URL) {
     const value = environment.VERCEL_PROJECT_PRODUCTION_URL;
-    const origin = normalizePublicHttpsOrigin(value.includes("://") ? value : `https://${value}`);
-    assertNotTransientPreview(origin, environment);
-    return origin;
+    const base = normalizePublicHttpsBase(value.includes("://") ? value : `https://${value}`);
+    assertNotTransientPreview(base, environment);
+    return base;
   }
 
   const production = environment.NODE_ENV === "production" || environment.VERCEL_ENV === "production";
   if (!production && options.developmentOverride !== undefined) {
-    const origin = normalizePublicHttpsOrigin(options.developmentOverride);
-    assertNotTransientPreview(origin, environment);
-    return origin;
+    const base = normalizePublicHttpsBase(options.developmentOverride);
+    assertNotTransientPreview(base, environment);
+    return base;
   }
 
   throw new MayiEveConfigurationError(
