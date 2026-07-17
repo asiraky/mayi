@@ -419,6 +419,14 @@ export class MayiClient {
     return this.request("/api/auth/step-up", { method: "POST", body: JSON.stringify(input) }) as Promise<{ ok: true }>;
   }
 
+  passwordResetRequest(input: { email: string }) {
+    return this.request("/api/auth/password-reset/request", { method: "POST", body: JSON.stringify(input) }) as Promise<{ ok: true }>;
+  }
+
+  passwordResetConfirm(input: { token: string; password: string }) {
+    return this.request("/api/auth/password-reset/confirm", { method: "POST", body: JSON.stringify(input) }) as Promise<{ ok: true }>;
+  }
+
   listApprovals(state?: string) {
     return this.request(`/api/approvals${state ? `?state=${encodeURIComponent(state)}` : ""}`, {}, "optional-access-token") as Promise<Approval[]>;
   }

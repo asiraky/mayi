@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { renderApprovalRequestedEmail, renderInputRequestedEmail } from "./index";
+import {
+  renderApprovalRequestedEmail,
+  renderInputRequestedEmail,
+  renderPasswordResetEmail,
+} from "./index";
 
 describe("input requested email", () => {
   it("leads with the prompt and a single answering link", async () => {
@@ -40,5 +44,18 @@ describe("approval requested email", () => {
     // behind the authenticated link.
     expect(html).not.toContain("0123456789abcdefghjkmnpqrs");
     expect(html).not.toContain("2026-07-17T00:00:00.000Z");
+  });
+});
+
+describe("password reset email", () => {
+  it("carries the reset link, expiry note and no-action reassurance", async () => {
+    const html = await renderPasswordResetEmail({
+      resetUrl: "https://mayi.test/reset?token=tok123",
+    });
+    expect(html).toContain("Password reset");
+    expect(html).toContain("Reset password");
+    expect(html).toContain("https://mayi.test/reset?token=tok123");
+    expect(html).toContain("expires in 30 minutes");
+    expect(html).toContain("your password is unchanged");
   });
 });

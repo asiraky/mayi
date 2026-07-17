@@ -10,3 +10,7 @@ export {
   renderForwardingVerificationEmail,
   type ForwardingVerificationEmailProps,
 } from "./components/forwarding-verification";
+export {
+  renderPasswordResetEmail,
+  type PasswordResetEmailProps,
+} from "./components/password-reset";

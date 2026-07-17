@@ -85,6 +85,13 @@
       "when": 1784210006170,
       "tag": "0011_hitl_inputs",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784244755724,
+      "tag": "0012_password_reset_tokens",
+      "breakpoints": true
     }
   ]
 }
