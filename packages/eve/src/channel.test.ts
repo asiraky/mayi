@@ -242,6 +242,37 @@ describe("mayiChannel", () => {
       .not.toBe(byCallId.get("call-two")!.body.callback.state);
   });
 
+  it("joins the callback path onto a path-bearing public base URL", async () => {
+    const fetchMock = createFetchMock();
+    const callbackStateCodec = await createCallbackStateCodec({
+      currentKey: { kid: "test-key", key: callbackKey },
+      maximumRetryWindowSeconds: CALLBACK_ACCEPTANCE_WINDOW_SECONDS,
+      now: () => now,
+    });
+    const pathRoutedRuntime = createRuntime({
+      getAccessToken: async () => "fabricated-oauth-token",
+      mayiOrigin: "https://mayi.example",
+      callbackStateCodec,
+      environment: { EVE_PUBLIC_ORIGIN: "https://eden.example/e/abc123def456" },
+      fetch: fetchMock,
+    }, { now: () => now });
+    const handler = createInputRequestedHandler(pathRoutedRuntime);
+    const state: MayiChannelState = {
+      rawContinuationToken: "mayi:raw-continuation-secret",
+      target: {},
+    };
+
+    await handler(
+      { requests: [approvalRequest("call-one", "request-one")] },
+      { state },
+      { session: { id: "eve-session-one" } },
+    );
+
+    const [call] = capturedCalls(fetchMock);
+    expect(call!.body.callback.url)
+      .toBe(`https://eden.example/e/abc123def456${MAYI_CALLBACK_PATH}`);
+  });
+
   it("uses stable per-request idempotency keys across event retries", async () => {
     const fetchMock = createFetchMock();
     const fixture = await runtime(fetchMock);

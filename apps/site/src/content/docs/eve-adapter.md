@@ -97,7 +97,7 @@ The same pattern moves a custom channel route onto Mayi. `target.mayiUserId` is 
 POST /eve/v1/mayi/approval-resolved
 ```
 
-You do not author that route, its URL, encrypted state, a correlation table, or a signature verifier. The adapter derives the callback URL from the stable public Eve origin; register that exact HTTPS URL in the OAuth client's immutable `approval_callback_uris`. Do not invent a `/channels/mayi/...` prefix — Eve 0.24.2 compiles `route.path` verbatim, so a namespaced path registers the wrong callback and 404s.
+You do not author that route, its URL, encrypted state, a correlation table, or a signature verifier. The adapter derives the callback URL from the stable public Eve base URL; register that exact HTTPS URL in the OAuth client's immutable `approval_callback_uris`. Do not invent a `/channels/mayi/...` prefix — Eve 0.24.2 compiles `route.path` verbatim, so a namespaced path registers the wrong callback and 404s.
 
 For every delivery the adapter verifies Mayi's EdDSA JWS against Mayi's JWKS before touching encrypted state, then resumes the original Eve request against its continuation token. `approved` chooses Eve's `approve`; `denied`, `expired`, and `cancelled` choose `deny` (the session resumes but the tool does not run). Delivery is at least once and duplicate-safe: Eve's continuation fence means retrying the same stable event ID cannot run the tool twice, and the signed event stays acceptable for seven days after resolution.
 
@@ -123,7 +123,7 @@ The duplicate check runs only after webhook verification, and `markProcessed` on
 | --- | --- |
 | `getAccessToken` | **Required.** Returns a current Mayi access token. |
 | `mayiOrigin` | Mayi API/JWKS origin. Defaults to `MAYI_ORIGIN`, then `https://app.mayi.sh`. |
-| `publicOrigin` | Explicit HTTPS origin for local dev or a tunnel. Refused in production. |
+| `publicOrigin` | Explicit HTTPS base URL for local dev or a tunnel. Refused in production. |
 | `approvalExpiresInSeconds` | Approval lifetime for sessions on this channel. Defaults to 3600; must be an integer 60–604800. |
 | `artefacts` | Evidence hook (above). |
 | `artefactTimeoutMs` | Per-request hook + upload budget. Defaults to 30 s. |
@@ -132,7 +132,7 @@ The duplicate check runs only after webhook verification, and `markProcessed` on
 
 The deployment host provisions these environment variables:
 
-- `EVE_PUBLIC_ORIGIN` — the stable public HTTPS origin of the deployed agent (`https://agent.example`). Not a preview URL, localhost, path, or port.
+- `EVE_PUBLIC_ORIGIN` — the stable public HTTPS base URL of the deployed agent: an origin (`https://agent.example`), or an origin plus a path prefix (`https://eden.example/e/abc123def456`) on hosts that route instances by path prefix on a shared hostname. Not a preview URL, localhost, query string, or non-default port. On path-routed hosts the platform's ingress must strip the prefix before requests reach the instance — the adapter's registered callback route is always exactly `MAYI_CALLBACK_PATH`.
 - `MAYI_CALLBACK_STATE_KEY_ID` — identifier for the current callback-state key.
 - `MAYI_CALLBACK_STATE_KEY` — a stable base64url 32-byte encryption key.
 - `MAYI_CALLBACK_STATE_PREVIOUS_KEYS` (optional) — JSON array of decrypt-only `{ "kid", "key" }` entries kept during key rotation.

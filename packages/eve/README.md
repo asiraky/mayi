@@ -166,8 +166,9 @@ POST /eve/v1/mayi/approval-resolved
 
 Authors do not create that route, its URL, encrypted state, a correlation table,
 or a signature verifier. The adapter builds the callback URL from the stable
-public Eve origin. Register that exact HTTPS URL as an
-entry in `approval_callback_uris` for the Eden/host OAuth client.
+public Eve base URL (including any path prefix on path-routed hosts). Register
+that exact HTTPS URL as an entry in `approval_callback_uris` for the Eden/host
+OAuth client.
 
 The explicit `POST()` route is intentional. Eve 0.24.2 compiles a channel
 `route.path` verbatim; it does not prepend a channel namespace. Inventing a
@@ -208,8 +209,13 @@ Mayi's JWKS; normal deployments use the runtime's global `fetch`.
 
 The deployment host provisions:
 
-- `EVE_PUBLIC_ORIGIN`: the stable public HTTPS origin of the deployed Eve agent,
-  such as `https://agent.example`. Do not use a transient preview URL.
+- `EVE_PUBLIC_ORIGIN`: the stable public HTTPS base URL of the deployed Eve
+  agent — an origin such as `https://agent.example`, or an origin plus a path
+  prefix such as `https://eden.example/e/abc123def456` on hosts that route
+  instances by path prefix on a shared hostname. Do not use a transient
+  preview URL. On path-routed hosts the platform's ingress must strip the
+  prefix before the request reaches the instance, because the adapter's
+  registered callback route is always exactly `MAYI_CALLBACK_PATH`.
 - `MAYI_CALLBACK_STATE_KEY_ID`: the identifier for the current callback-state
   encryption key.
 - `MAYI_CALLBACK_STATE_KEY`: a stable base64url-encoded 32-byte encryption key.
@@ -236,9 +242,11 @@ receipts, or sensitive tool input.
 
 ## Troubleshooting
 
-- **Public origin:** set `EVE_PUBLIC_ORIGIN` to one stable public HTTPS origin.
-  Vercel production can use `VERCEL_PROJECT_PRODUCTION_URL`; preview URLs,
-  localhost, paths, ports, and private hosts are refused.
+- **Public base URL:** set `EVE_PUBLIC_ORIGIN` to one stable public HTTPS base
+  URL (origin plus an optional path prefix for path-routed hosts). Vercel
+  production can use `VERCEL_PROJECT_PRODUCTION_URL` (origin only — no path);
+  preview URLs, localhost, query strings, non-default ports, and private hosts
+  are refused.
 - **Origin changes:** `approval_callback_uris` are immutable. Register a new
   OAuth client with the new callback, reconnect through Authorization Code +
   PKCE, confirm the new agent works, then revoke the old agent connection.

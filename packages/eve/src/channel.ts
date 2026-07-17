@@ -105,7 +105,7 @@ export interface MayiChannelConfig {
   readonly getAccessToken: GetAccessToken;
   /** Mayi API origin. Defaults to MAYI_ORIGIN, then https://app.mayi.sh. */
   readonly mayiOrigin?: string;
-  /** Explicit HTTPS origin for local development or a tunnel. Never used in production. */
+  /** Explicit HTTPS base URL for local development or a tunnel. Never used in production. */
   readonly publicOrigin?: string;
   readonly approvalExpiresInSeconds?: number;
   readonly fetch?: MayiFetch;
@@ -768,6 +768,9 @@ export function mayiChannel(config: MayiChannelConfig): Channel<MayiChannelState
         session: { id: session.id, continuationToken: session.continuationToken, auth: session.auth },
       };
     },
+    // The route stays MAYI_CALLBACK_PATH even when the public base URL carries
+    // a path prefix: path-routed hosts strip that prefix at their ingress
+    // before the request reaches this instance.
     routes: [POST<MayiChannelState>(MAYI_CALLBACK_PATH, createResolvedCallbackHandler(runtime))],
     async receive(input, { send }) {
       const mayiUserId = input.target.mayiUserId;
