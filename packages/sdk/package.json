@@ -1,6 +1,6 @@
 {
   "name": "@mayiapp/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript client and verification utilities for May I? approvals",
   "type": "module",
   "types": "./dist/index.d.ts",
