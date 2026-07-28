@@ -5,5 +5,5 @@
   "type": "module",
   "bin": { "mayi-mcp": "./src/stdio.ts" },
   "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
-  "devDependencies": { "@types/node": "^26.1.1" }
+  "devDependencies": { "@types/node": "^26.1.2" }
 }
