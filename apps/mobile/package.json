@@ -6,22 +6,22 @@
   "scripts": { "start": "expo start", "android": "expo run:android", "ios": "expo run:ios", "typecheck": "tsc --noEmit" },
   "dependencies": {
     "@mayi/contracts": "workspace:*",
-    "expo": "~57.0.4",
-    "expo-constants": "~57.0.3",
+    "expo": "~57.0.8",
+    "expo-constants": "~57.0.7",
     "expo-device": "~57.0.0",
     "expo-file-system": "~57.0.0",
-    "expo-linking": "~57.0.2",
-    "expo-local-authentication": "~57.0.0",
-    "expo-notifications": "~57.0.3",
-    "expo-router": "~57.0.4",
+    "expo-linking": "~57.0.4",
+    "expo-local-authentication": "~57.0.2",
+    "expo-notifications": "~57.0.7",
+    "expo-router": "~57.0.8",
     "expo-secure-store": "~57.0.0",
-    "expo-sharing": "~57.0.3",
+    "expo-sharing": "~57.0.7",
     "expo-status-bar": "~57.0.0",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
-    "react-native": "0.86.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-native": "0.86.2",
     "react-native-safe-area-context": "~5.8.0",
-    "react-native-screens": "4.26.1"
+    "react-native-screens": "4.26.2"
   },
-  "devDependencies": { "@types/react": "~19.2.0", "typescript": "~6.0.3" }
+  "devDependencies": { "@types/react": "~19.2.17", "typescript": "~7.0.2" }
 }
