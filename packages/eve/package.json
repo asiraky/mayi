@@ -40,10 +40,10 @@
     "@mayiapp/sdk": "workspace:^0.3.0"
   },
   "peerDependencies": {
-    "eve": "0.24.2"
+    "eve": "0.31.3"
   },
   "devDependencies": {
-    "eve": "0.24.2",
+    "eve": "0.31.3",
     "tsup": "^8.5.1",
     "typescript": "^5.9.0",
     "zod": "^4.4.3"
