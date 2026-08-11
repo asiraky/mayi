@@ -47,11 +47,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "jose": "^6.2.3"
+    "jose": "^6.2.8"
   },
   "devDependencies": {
     "@mayi/contracts": "workspace:*",
     "tsup": "^8.5.1",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

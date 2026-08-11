@@ -19,7 +19,7 @@
     "@mayi/storage": "workspace:*",
     "@mayi/web": "workspace:*",
     "h3": "^1.15.0",
-    "jose": "^6.2.0",
+    "jose": "^6.2.8",
     "nitropack": "2.13.4",
     "postgres": "^3.4.0",
     "zod": "^4.4.0"
