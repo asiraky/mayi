@@ -5,5 +5,5 @@
   "type": "module",
   "exports": { ".": "./src/index.ts" },
   "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@mayi/contracts": "workspace:*", "zod": "^4.4.0" }
+  "dependencies": { "@mayi/contracts": "workspace:*", "zod": "^4.5.4" }
 }

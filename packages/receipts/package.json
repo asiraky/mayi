@@ -8,5 +8,5 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "generate-key": "tsx src/generate-key.ts"
   },
-  "dependencies": { "@mayi/contracts": "workspace:*", "jose": "^6.2.0", "zod": "^4.4.0" }
+  "dependencies": { "@mayi/contracts": "workspace:*", "jose": "^6.2.10", "zod": "^4.5.4" }
 }
