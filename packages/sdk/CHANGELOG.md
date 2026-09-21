@@ -1,5 +1,15 @@
 # @mayiapp/sdk
 
+## 0.4.0
+
+### Minor Changes
+
+- 35997db: OAuth connections can be reconnected and labelled. The authorize endpoint accepts `label` (names the installation on the consent screen and in the connections list) and `connection` (an existing `agent_id`; the code exchange renews that agent's credentials instead of creating a new agent, so its pending approvals stay readable). Token responses now include `agent_id`. An owner's revoke is recorded in `agents.revoked_by` and is final; a revoke caused by refresh-token reuse can be recovered by reconnecting.
+
+  `MayiClient.revokeAgent(id)` revokes a connection; the web app's Agents tab now offers it and shows revoked connections as revoked.
+
+- 72e1d7d: Approvals can carry human review content and form revision chains. `approvals.request` and `createApproval` accept optional `title`, `reviewMarkdown` and `supersedesApprovalId`. `Approval` responses add `title`, `reviewMarkdown`, `reviewDigest`, `supersedesApprovalId`, `supersededByApprovalId`, `decisionOutcome` and `reviewUrl`. Reviewers may decide `CHANGES_REQUESTED` with required feedback: the approval becomes `DENIED` (callback status `denied`, no receipt) and `decisionOutcome`/`decisionComment` carry the request. Approved receipts include a `review_digest` claim when present; the SDK exports `reviewDigest()` to recompute it.
+
 ## 0.3.0
 
 ### Minor Changes
