@@ -3,6 +3,7 @@ import { isHighRisk, validateActionForEnforcement, validateSuggestedApprover } f
 import { createError, defineEventHandler } from "h3";
 import { audit, requireAgent } from "../../utils/auth";
 import { asHttpError, bodyAs, requireIdempotencyKey } from "../../utils/http";
+import { prepareReviewContent, rethrowSupersedesConflict } from "../../utils/review-content";
 import { database } from "../../utils/runtime";
 import { serializeApproval } from "../../utils/serialize";
 
@@ -31,12 +32,19 @@ export default defineEventHandler(async (event) => {
       where m.workspace_id = ${auth.workspaceId} and m.active and m.revoked_at is null and m.role in ('OWNER', 'APPROVER')
     `;
     validateSuggestedApprover(input.suggestedApproverId, eligible.map((row) => String(row.user_id)));
+    const review = await prepareReviewContent(sql, auth, input);
     const id = createId();
     const [approval] = await sql`
-      insert into approvals (id, workspace_id, agent_id, action, explanation, enforcement, high_risk, expires_at)
-      values (${id}, ${auth.workspaceId}, ${auth.agentId}, ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}))
+      insert into approvals (
+        id, workspace_id, agent_id, action, explanation, enforcement, high_risk, expires_at,
+        title, review_markdown, review_digest, supersedes_approval_id
+      )
+      values (
+        ${id}, ${auth.workspaceId}, ${auth.agentId}, ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}),
+        ${review.title}, ${review.reviewMarkdown}, ${review.reviewDigest}, ${review.supersedesApprovalId}
+      )
       returning id
-    `;
+    `.catch(rethrowSupersedesConflict);
     const storedId = String(approval!.id);
     await sql`
       insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at)

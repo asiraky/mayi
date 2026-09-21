@@ -1,4 +1,4 @@
-import type { Approval, ApprovalState, Input as InputItem, InputState, Session } from "@mayi/contracts";
+import type { Approval, ApprovalState, DecisionOutcome, Input as InputItem, InputState, Session } from "@mayi/contracts";
 import { MayiClient } from "@mayiapp/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityRow } from "~/components/activity-row";
@@ -64,6 +64,7 @@ type InboxRow = {
   id: string;
   title: string;
   state: ApprovalState | InputState;
+  outcome: DecisionOutcome | null;
   createdAt: string;
   expiresAt: string;
 };
@@ -226,10 +227,16 @@ export function App() {
     if (current) {
       return (
         <ApprovalDetail
+          // Keyed so a hop along the revision history starts with a fresh draft.
+          key={current.id}
           item={current}
           email={session.user.email}
           api={api}
           onBack={() => open(undefined)}
+          onOpenApproval={(id) => {
+            open({ kind: "approval", id });
+            window.scrollTo(0, 0);
+          }}
           onRefresh={load}
         />
       );
@@ -285,8 +292,9 @@ export function App() {
         (item): InboxRow => ({
           kind: "approval",
           id: item.id,
-          title: item.explanation,
+          title: item.title ?? item.explanation,
           state: item.state,
+          outcome: item.decisionOutcome,
           createdAt: item.createdAt,
           expiresAt: item.expiresAt,
         }),
@@ -299,6 +307,7 @@ export function App() {
           id: item.id,
           title: item.prompt,
           state: item.state,
+          outcome: null,
           createdAt: item.createdAt,
           expiresAt: item.expiresAt,
         }),
@@ -373,7 +382,7 @@ export function App() {
                         <span className="hidden text-[12px] text-muted-foreground sm:block">
                           {row.state === "PENDING" ? relativeTime(row.expiresAt) : null}
                         </span>
-                        <StateBadge state={row.state} />
+                        <StateBadge state={row.state} outcome={row.outcome} />
                       </span>
                     </Row>
                   ))

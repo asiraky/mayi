@@ -71,12 +71,13 @@ describe.sequential("POST /api/receipts/consume", () => {
     await database().sql`
       insert into approvals (
         id, workspace_id, agent_id, state, action, explanation, enforcement,
-        action_digest, manifest_digest, policy_version, expires_at, sealed_at, decided_at, approver_id
+        action_digest, manifest_digest, policy_version, expires_at, sealed_at, decided_at, approver_id,
+        decision_outcome
       ) values (
         ${ids.approval}, ${ids.workspace}, ${ids.agent}, 'APPROVED',
         ${JSON.stringify({ kind: "tool-call", toolName: "execute", callId: createId(), input: {} })}::jsonb,
         'Consume rotated receipt', 'consumed', ${actionDigest}, ${manifestDigest}, 1,
-        now() + interval '15 minutes', now(), now(), ${ids.user}
+        now() + interval '15 minutes', now(), now(), ${ids.user}, 'APPROVED'
       )
     `;
     await database().sql`

@@ -40,12 +40,14 @@ async function createReadyCallback(status: "APPROVED" | "DENIED" | "EXPIRED" = "
     await sql`
       insert into approvals (
         id, workspace_id, agent_id, state, action, explanation, enforcement,
-        action_digest, manifest_digest, policy_version, expires_at, sealed_at, decided_at, approver_id
+        action_digest, manifest_digest, policy_version, expires_at, sealed_at, decided_at, approver_id,
+        decision_outcome
       ) values (
         ${approvalId}, ${ids.workspace}, ${ids.agent}, ${status},
         ${JSON.stringify({ kind: "tool-call", toolName: "deploy", callId: createId(), input: {} })}::jsonb,
         'Delivery integration', 'cooperative', ${"d".repeat(64)}, ${"e".repeat(64)}, 1,
-        now() + interval '1 hour', now(), now(), ${status === "DENIED" || status === "APPROVED" ? ids.user : null}
+        now() + interval '1 hour', now(), now(), ${status === "DENIED" || status === "APPROVED" ? ids.user : null},
+        ${status === "EXPIRED" ? null : status}
       )
     `;
     await sql`

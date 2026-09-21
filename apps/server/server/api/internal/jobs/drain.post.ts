@@ -20,6 +20,7 @@ import {
 } from "../../../utils/callback-outbox";
 import { renderApprovalRequestedEmail, renderInputRequestedEmail } from "@mayi/email";
 import { emailConfigured, sendEmail } from "../../../utils/email-client";
+import { approvalReviewUrl, inputReviewUrl } from "../../../utils/config";
 import { requireCronSecret } from "../../../utils/internal-auth";
 import { cleanupExpiredStagedArtefacts } from "../../../utils/staged-artefact-cleanup";
 
@@ -167,7 +168,7 @@ async function email(job: Job): Promise<NonCallbackJobResult> {
   if (!approvalId || !destinationId || !deliveryId) throw new Error("Incomplete email job");
   if (!emailConfigured()) throw new Error("Email delivery is not configured");
   const rows = await database().sql`
-    select d.endpoint, a.action, a.explanation, a.high_risk, a.expires_at,
+    select d.endpoint, a.action, a.explanation, a.title, a.high_risk, a.expires_at,
       ag.name as agent_name, w.name as workspace_name
     from forwarding_destinations d
     join approvals a on a.id = ${approvalId} and a.workspace_id = d.workspace_id
@@ -178,21 +179,21 @@ async function email(job: Job): Promise<NonCallbackJobResult> {
   const row = rows[0]; if (!row) throw new Error("Email destination no longer exists"); const action = Action.parse(row.action);
   const expiresAt = new Date(row.expires_at as Date);
   const kind = actionName(action);
-  // The web app is co-served by this server in production; WEB_ORIGIN overrides for
-  // dev where Vite hosts it on its own port.
-  const webOrigin = process.env.WEB_ORIGIN ?? process.env.PUBLIC_ORIGIN ?? "http://localhost:3000";
+  const title = row.title === null ? null : String(row.title);
   const html = await renderApprovalRequestedEmail({
     actionKind: kind,
+    title,
     explanation: String(row.explanation),
     agentName: String(row.agent_name),
     workspaceName: String(row.workspace_name),
     highRisk: Boolean(row.high_risk),
     expiresAtIso: expiresAt.toISOString(),
     expiresInText: relativeExpiry(expiresAt),
-    reviewUrl: `${webOrigin}/?approval=${approvalId}`,
+    reviewUrl: approvalReviewUrl(approvalId),
     approvalId,
   });
-  await sendEmail({ to: String(row.endpoint), subject: `May I ${kind}? — approval requested`, html });
+  const subject = title ? `${title} — approval requested` : `May I ${kind}? — approval requested`;
+  await sendEmail({ to: String(row.endpoint), subject, html });
   return { deliveryId, responseCode: 200 };
 }
 
@@ -210,15 +211,12 @@ async function emailInput(job: Job): Promise<NonCallbackJobResult> {
   `;
   const row = rows[0]; if (!row) throw new Error("Email destination no longer exists");
   const expiresAt = new Date(row.expires_at as Date);
-  // The web app is co-served by this server in production; WEB_ORIGIN overrides for
-  // dev where Vite hosts it on its own port.
-  const webOrigin = process.env.WEB_ORIGIN ?? process.env.PUBLIC_ORIGIN ?? "http://localhost:3000";
   const html = await renderInputRequestedEmail({
     prompt: String(row.prompt),
     agentName: String(row.agent_name),
     workspaceName: String(row.workspace_name),
     expiresInText: relativeExpiry(expiresAt),
-    reviewUrl: `${webOrigin}/?input=${inputId}`,
+    reviewUrl: inputReviewUrl(inputId),
   });
   await sendEmail({ to: String(row.endpoint), subject: `May I ask? — ${String(row.agent_name)} needs your input`, html });
   return { responseCode: 200 };

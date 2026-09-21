@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
         policy_version = ${approval.policy_version}, sealed_at = now() where id = ${approvalId}
     `;
     await queuePendingNotifications(sql, { workspaceId: auth.workspaceId, approvalId, action });
-    await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.sealed", subjectType: "approval", subjectId: approvalId, metadata: digests }, sql);
+    await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.sealed", subjectType: "approval", subjectId: approvalId, metadata: { ...digests, reviewDigest: approval.review_digest === null ? null : String(approval.review_digest), supersedesApprovalId: approval.supersedes_approval_id === null ? null : String(approval.supersedes_approval_id) } }, sql);
   });
   return await serializeApproval(auth.workspaceId, approvalId);
 });

@@ -8,10 +8,14 @@ import { styles } from "./shared-styles";
  * action named in plain language and a single deep link that lands directly on the
  * approval so the decision is two taps away. Nothing sensitive travels in the mail
  * itself — the exact payload, artefacts and receipt live behind the authenticated link.
+ * When the integration gave the request a title, the title leads and the explanation
+ * follows as supporting prose. The Markdown review document is never mailed.
  */
 
 export interface ApprovalRequestedEmailProps {
   actionKind: string;
+  /** Optional one-line title; leads the email when present. */
+  title?: string | null | undefined;
   explanation: string;
   agentName: string;
   workspaceName: string;
@@ -24,6 +28,7 @@ export interface ApprovalRequestedEmailProps {
 
 export default function ApprovalRequested({
   actionKind,
+  title,
   explanation,
   agentName,
   workspaceName,
@@ -32,9 +37,12 @@ export default function ApprovalRequested({
   reviewUrl,
 }: ApprovalRequestedEmailProps) {
   return (
-    <EmailLayout preview={`${agentName} asks: may I ${actionKind}? Expires ${expiresInText}.`}>
+    <EmailLayout preview={title
+      ? `${agentName} asks for approval: ${title}. Expires ${expiresInText}.`
+      : `${agentName} asks: may I ${actionKind}? Expires ${expiresInText}.`}>
       <Text style={styles.kicker}>Approval requested</Text>
-      <Text style={styles.hero}>{explanation}</Text>
+      <Text style={styles.hero}>{title || explanation}</Text>
+      {title && <Text style={styles.prose}>{explanation}</Text>}
       <Text style={styles.metaLine}>
         {agentName} is asking to {actionKind} in {workspaceName} · expires {expiresInText}
       </Text>

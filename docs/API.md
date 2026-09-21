@@ -78,6 +78,69 @@ compact EdDSA JWS against the raw canonical body with `@mayiapp/sdk`, and return
 2xx status for both first acceptance and duplicate acceptance. Mayi stores and
 echoes `state` unchanged and never parses or logs it.
 
+## Review content and revisions
+
+Every approval create path (`POST /api/approvals/request`, `POST /api/approvals`
++ seal, and MCP `create_approval`) accepts three optional fields:
+
+- `title`: one line, 1–200 characters, not blank. Leads the approval in the
+  app and in the notification email.
+- `reviewMarkdown`: a Markdown document (CommonMark + GFM tables), 1–100000
+  characters, not blank. The web app renders it without raw HTML or images. It
+  is explanatory only: May I? never interprets it for authorization, and it is
+  never included in email.
+- `supersedesApprovalId`: a previous approval this request revises.
+
+These fields are part of the idempotency fingerprint. Reusing an
+`Idempotency-Key` with a different title or document returns `409`.
+
+Every approval response carries:
+
+- `title`, `reviewMarkdown`, and `supersedesApprovalId`, as sent, or `null`.
+- `reviewDigest`: always set, including when neither title nor document was given.
+- `supersededByApprovalId`: the revision that replaced this approval, or `null`.
+- `decisionOutcome`: `APPROVED`, `DENIED`, `CHANGES_REQUESTED`, or `null`
+  while undecided or when the approval expired or was cancelled.
+- `reviewUrl`: the stable link a person opens to review the approval:
+  `<WEB_ORIGIN>/?approval=<id>`. It falls back to `PUBLIC_ORIGIN`, then
+  `http://localhost:3000`. The notification email uses the same link.
+
+`reviewDigest` is the lowercase hex SHA-256 of the canonical JSON (sorted keys,
+no whitespace) of `{ explanation, reviewMarkdown, title, v: 1 }`. Absent fields
+are `null`. `@mayiapp/sdk` exports `reviewDigest()` to compute it. An approved
+receipt carries the frozen value as its `review_digest` claim, so a target can
+check which proposal the receipt authorizes. The action, explanation, title,
+document, digest, and revision link cannot be changed after creation; the
+database rejects any update to them.
+
+### Requesting changes
+
+A reviewer decides with `POST /api/approvals/:id/decision` and a body of
+`{ decision: "APPROVED" | "DENIED" | "CHANGES_REQUESTED", comment? }`.
+`CHANGES_REQUESTED` needs a non-blank `comment` of at most 4000 characters, or
+the request fails with `422`. Requesting changes is a denial: `state` becomes
+`DENIED`, `decisionOutcome` becomes `CHANGES_REQUESTED`, and no receipt is
+issued. The audit event is `approval.changes_requested`.
+
+The version 1 `approval.resolved` callback is unchanged. It reports
+`status: "denied"` with `approver`. To tell the two kinds of denial apart and
+read the feedback, the integration fetches `GET /api/approvals/:id` with its
+agent token and reads `decisionOutcome` and `decisionComment`.
+
+### Revisions
+
+To answer feedback, create a new approval with `supersedesApprovalId` set to the
+approval you are replacing. That approval must:
+
+- have been created by the same agent. Otherwise the request fails with `422`,
+  as it does for an ID that doesn't exist or belongs to another workspace.
+- be resolved (approved, denied, expired, or cancelled). A pending approval
+  returns `409`; cancel it first.
+- not already have a revision. A second revision returns `409`, including when
+  two requests race.
+
+The earlier approval then reports the new one as `supersededByApprovalId`.
+
 ## Inputs (generic human input)
 
 Questions with no action to enforce — freeform text, a pick from a list, a

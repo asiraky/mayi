@@ -1,7 +1,7 @@
 import type { Action, InputAnswer, InputOption } from "@mayi/contracts";
 import { sql } from "drizzle-orm";
 import {
-  boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
+  type AnyPgColumn, boolean, check, customType, index, integer, jsonb, pgEnum, pgTable, primaryKey, text,
   timestamp, uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -159,10 +159,27 @@ export const approvals = pgTable("approvals", {
   decidedAt: timestamp("decided_at", { withTimezone: true }),
   approverId: identifier("approver_id").references(() => users.id),
   decisionComment: text("decision_comment"),
+  /** APPROVED, DENIED or CHANGES_REQUESTED. CHANGES_REQUESTED is a denial (state DENIED). */
+  decisionOutcome: text("decision_outcome"),
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  title: text("title"),
+  reviewMarkdown: text("review_markdown"),
+  /** reviewDigest() over what the reviewer read; frozen at creation, bound into receipts. */
+  reviewDigest: text("review_digest"),
+  /** The resolved approval (same workspace and agent, enforced in code) this one revises. */
+  supersedesApprovalId: identifier("supersedes_approval_id").references((): AnyPgColumn => approvals.id),
 }, (t) => [
   index("approvals_workspace_state_idx").on(t.workspaceId, t.state, t.createdAt),
+  uniqueIndex("approvals_supersedes_uidx").on(t.supersedesApprovalId).where(sql`${t.supersedesApprovalId} IS NOT NULL`),
   check("approval_digest_sealed_check", sql`${t.state} = 'DRAFT' OR (${t.actionDigest} IS NOT NULL AND ${t.manifestDigest} IS NOT NULL AND ${t.sealedAt} IS NOT NULL)`),
+  check("approvals_title_check", sql`${t.title} IS NULL OR (char_length(${t.title}) BETWEEN 1 AND 200 AND ${t.title} ~ '\\S' AND strpos(${t.title}, chr(10)) = 0 AND strpos(${t.title}, chr(13)) = 0)`),
+  check("approvals_review_markdown_check", sql`${t.reviewMarkdown} IS NULL OR (char_length(${t.reviewMarkdown}) BETWEEN 1 AND 100000 AND ${t.reviewMarkdown} ~ '\\S')`),
+  check("approvals_review_digest_check", sql`${t.reviewDigest} IS NULL OR ${t.reviewDigest} ~ '^[a-f0-9]{64}$'`),
+  check("approvals_supersedes_self_check", sql`${t.supersedesApprovalId} IS NULL OR ${t.supersedesApprovalId} <> ${t.id}`),
+  check("approvals_decision_outcome_check", sql`${t.decisionOutcome} IS NULL OR ${t.decisionOutcome} IN ('APPROVED', 'DENIED', 'CHANGES_REQUESTED')`),
+  check("approvals_decision_outcome_state_check", sql`(${t.state} IN ('APPROVED', 'DENIED')) = (${t.decisionOutcome} IS NOT NULL)`),
+  check("approvals_decision_outcome_approved_check", sql`(${t.decisionOutcome} = 'APPROVED') = (${t.state} = 'APPROVED')`),
+  check("approvals_changes_requested_check", sql`${t.decisionOutcome} IS DISTINCT FROM 'CHANGES_REQUESTED' OR (${t.state} = 'DENIED' AND ${t.decisionComment} IS NOT NULL AND ${t.decisionComment} ~ '\\S')`),
 ]);
 
 export const approvalCallbacks = pgTable("approval_callbacks", {

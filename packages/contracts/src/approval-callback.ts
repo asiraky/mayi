@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Action } from "./action";
 import { Id } from "./id";
+import { ReviewContent } from "./review";
 
 export const MAX_CALLBACK_STATE_LENGTH = 32 * 1024;
 export const MAX_APPROVAL_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
@@ -26,6 +27,7 @@ export const ApprovalRequest = z.object({
   expiresInSeconds: z.number().int().min(60).max(MAX_APPROVAL_LIFETIME_SECONDS),
   callback: ApprovalCallback,
   artefactIds: z.array(Id).max(20).optional(),
+  ...ReviewContent,
 }).strict();
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
 

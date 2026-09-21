@@ -237,7 +237,7 @@ describe.sequential("POST /api/approvals/request", () => {
 
     await database().sql`
       update approvals
-      set state = 'DENIED', decided_at = now(), approver_id = ${ids.user}, decision_comment = 'Denied later'
+      set state = 'DENIED', decision_outcome = 'DENIED', decided_at = now(), approver_id = ${ids.user}, decision_comment = 'Denied later'
       where id = ${original.id}
     `;
 

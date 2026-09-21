@@ -39,7 +39,14 @@ const pendingApproval = {
   expiresAt: "2026-07-15T00:15:00.000Z",
   decidedAt: null,
   decisionComment: null,
+  decisionOutcome: null,
   approverId: null,
+  title: null,
+  reviewMarkdown: null,
+  reviewDigest: "c".repeat(64),
+  supersedesApprovalId: null,
+  supersededByApprovalId: null,
+  reviewUrl: "https://mayi.example/?approval=ApprovalAbcd",
 };
 
 const draftApproval = { ...pendingApproval, state: "DRAFT" as const, sealedAt: null };
@@ -121,6 +128,38 @@ describe("MayiClient approvals.request", () => {
     expect(headers.get("idempotency-key")).toBe("stable-key");
     expect(JSON.parse(body!)).toEqual(requestInput);
     expect(JSON.parse(body!).action).not.toHaveProperty("audience");
+  });
+
+  it("passes review content through and returns it from the sealed approval", async () => {
+    const review = {
+      title: "Ship release 1.2.3",
+      reviewMarkdown: "## Changes\n\n| file | lines |\n| --- | --- |\n| a.ts | 3 |",
+      supersedesApprovalId: "PreviousAbcd",
+    };
+    const fetchMock = vi.fn<MayiFetch>(async () => jsonResponse({ ...pendingApproval, ...review }));
+    const client = new MayiClient({ origin: "https://mayi.example", getAccessToken: async () => "token", fetch: fetchMock });
+
+    const approval = await client.approvals.request({ ...requestInput, ...review }, { idempotencyKey: "review-key" });
+
+    expect(JSON.parse(captured(fetchMock.mock.calls[0]![1]).body!)).toEqual({ ...requestInput, ...review });
+    expect(approval).toMatchObject(review);
+  });
+
+  it("reads approvals from a server that predates review content as having none", async () => {
+    const legacy: Record<string, unknown> = { ...pendingApproval };
+    for (const field of ["decisionOutcome", "title", "reviewMarkdown", "reviewDigest", "supersedesApprovalId", "supersededByApprovalId", "reviewUrl"]) {
+      delete legacy[field];
+    }
+    const client = new MayiClient({
+      origin: "https://mayi.example",
+      getAccessToken: async () => "token",
+      fetch: vi.fn<MayiFetch>(async () => jsonResponse(legacy)),
+    });
+
+    await expect(client.approvals.request(requestInput, { idempotencyKey: "legacy" })).resolves.toMatchObject({
+      decisionOutcome: null, title: null, reviewMarkdown: null, reviewDigest: null,
+      supersedesApprovalId: null, supersededByApprovalId: null, reviewUrl: null,
+    });
   });
 
   it("gets a fresh access token for every authenticated call", async () => {

@@ -1,5 +1,6 @@
-import { Action, InputAnswer, InputOption, type Artefact, type InputState, type InputType } from "@mayi/contracts";
+import { Action, DecisionOutcome, InputAnswer, InputOption, type Artefact, type InputState, type InputType } from "@mayi/contracts";
 import type { DatabaseSql } from "@mayi/db";
+import { approvalReviewUrl } from "./config";
 import { database } from "./runtime";
 
 export async function serializeApproval(
@@ -8,7 +9,9 @@ export async function serializeApproval(
   sql: DatabaseSql = database().sql,
 ) {
   const rows = await sql`
-    select a.*, r.compact_jws
+    select a.*, r.compact_jws,
+      (select s.id from approvals s
+        where s.supersedes_approval_id = a.id and s.workspace_id = a.workspace_id) as superseded_by_approval_id
     from approvals a left join receipts r on r.approval_id = a.id
     where a.workspace_id = ${workspaceId} and a.id = ${approvalId} limit 1
   `;
@@ -30,7 +33,15 @@ export async function serializeApproval(
     })),
     createdAt: new Date(String(row.created_at)).toISOString(), sealedAt: row.sealed_at ? new Date(String(row.sealed_at)).toISOString() : null,
     expiresAt: new Date(String(row.expires_at)).toISOString(), decidedAt: row.decided_at ? new Date(String(row.decided_at)).toISOString() : null,
-    decisionComment: row.decision_comment, approverId: row.approver_id ? String(row.approver_id) : null,
+    decisionComment: row.decision_comment,
+    decisionOutcome: row.decision_outcome === null ? null : DecisionOutcome.parse(row.decision_outcome),
+    approverId: row.approver_id ? String(row.approver_id) : null,
+    title: row.title === null ? null : String(row.title),
+    reviewMarkdown: row.review_markdown === null ? null : String(row.review_markdown),
+    reviewDigest: row.review_digest === null ? null : String(row.review_digest),
+    supersedesApprovalId: row.supersedes_approval_id === null ? null : String(row.supersedes_approval_id),
+    supersededByApprovalId: row.superseded_by_approval_id === null ? null : String(row.superseded_by_approval_id),
+    reviewUrl: approvalReviewUrl(String(row.id)),
     ...(row.compact_jws ? { receipt: String(row.compact_jws) } : {}),
   };
 }
