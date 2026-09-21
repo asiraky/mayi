@@ -1,12 +1,14 @@
 import { z } from "zod";
 import { Action } from "./action";
 import { Id } from "./id";
+import { DecisionOutcome, MAX_DECISION_COMMENT_LENGTH, ReviewContent } from "./review";
 
 export * from "./action";
 export * from "./approval-callback";
 export * from "./canonical";
 export * from "./id";
 export * from "./input";
+export * from "./review";
 
 export const ApprovalState = z.enum(["DRAFT", "PENDING", "APPROVED", "DENIED", "EXPIRED", "CANCELLED"]);
 export type ApprovalState = z.infer<typeof ApprovalState>;
@@ -30,13 +32,21 @@ export const CreateApproval = z.object({
   expiresInSeconds: z.number().int().min(60).max(7 * 24 * 60 * 60).default(3600),
   enforcement: EnforcementMode.default("cooperative"),
   suggestedApproverId: Id.optional(),
+  ...ReviewContent,
 });
 export type CreateApproval = z.infer<typeof CreateApproval>;
 
 export const SealApproval = z.object({ artefactIds: z.array(Id).max(20).default([]) });
+/**
+ * `comment` is the reviewer's written feedback. It is required (non-blank) for
+ * CHANGES_REQUESTED and optional otherwise.
+ */
 export const Decision = z.object({
-  decision: z.enum(["APPROVED", "DENIED"]),
-  comment: z.string().max(4_000).optional(),
+  decision: DecisionOutcome,
+  comment: z.string().max(MAX_DECISION_COMMENT_LENGTH).optional(),
+}).refine((value) => value.decision !== "CHANGES_REQUESTED" || (value.comment ?? "").trim().length > 0, {
+  message: "Feedback is required when requesting changes",
+  path: ["comment"],
 });
 export type Decision = z.infer<typeof Decision>;
 
@@ -56,7 +66,14 @@ export const Approval = z.object({
   expiresAt: z.iso.datetime(),
   decidedAt: z.iso.datetime().nullable(),
   decisionComment: z.string().nullable(),
+  /** APPROVED, DENIED or CHANGES_REQUESTED once a reviewer decided; null otherwise. */
+  decisionOutcome: DecisionOutcome.nullable().default(null),
   approverId: Id.nullable(),
+  title: z.string().nullable().default(null),
+  reviewMarkdown: z.string().nullable().default(null),
+  reviewDigest: z.string().nullable().default(null),
+  supersedesApprovalId: Id.nullable().default(null),
+  supersededByApprovalId: Id.nullable().default(null),
   receipt: z.string().optional(),
 });
 export type Approval = z.infer<typeof Approval>;
