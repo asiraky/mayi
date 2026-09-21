@@ -1,5 +1,13 @@
 # @mayiapp/eve
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [35997db]
+- Updated dependencies [72e1d7d]
+  - @mayiapp/sdk@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes
