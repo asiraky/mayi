@@ -3,7 +3,21 @@ import {
   Artefact as ArtefactSchema,
   Input as InputSchema,
   createId,
+  reviewDigest as contractsReviewDigest,
 } from "@mayi/contracts";
+
+/**
+ * SHA-256 (hex) of the canonical `{ explanation, reviewMarkdown, title, v: 1 }` document a
+ * reviewer read, absent fields as null. Matches `Approval.reviewDigest` and the
+ * `review_digest` claim of an approved receipt.
+ */
+export function reviewDigest(content: {
+  title?: string | null | undefined;
+  explanation: string;
+  reviewMarkdown?: string | null | undefined;
+}): Promise<string> {
+  return contractsReviewDigest(content);
+}
 import type {
   Approval,
   ApprovalRequest,
@@ -27,6 +41,7 @@ export type {
   Artefact,
   CreateApproval,
   Decision,
+  DecisionOutcome,
   EnforcementMode,
   Input,
   InputAnswer,
@@ -35,6 +50,7 @@ export type {
   InputResolvedEvent,
   InputState,
   InputType,
+  ReviewContent,
   Session,
   StagedArtefact,
   ToolCallAction,

@@ -26,7 +26,17 @@ export interface Artefact {
   sha256: string;
 }
 
-export interface CreateApproval {
+/** Optional human review content any approval request may carry. */
+export interface ReviewContent {
+  /** One line, 1–200 characters, not blank. The reviewer sees it first. */
+  title?: string | undefined;
+  /** Markdown (CommonMark + GFM tables), 1–100000 characters. Rendered without raw HTML or images. */
+  reviewMarkdown?: string | undefined;
+  /** A resolved approval created by the same agent that this request revises. */
+  supersedesApprovalId?: string | undefined;
+}
+
+export interface CreateApproval extends ReviewContent {
   action: Action;
   explanation: string;
   expiresInSeconds: number;
@@ -34,8 +44,12 @@ export interface CreateApproval {
   suggestedApproverId?: string | undefined;
 }
 
+/** CHANGES_REQUESTED is a denial that carries required reviewer feedback. */
+export type DecisionOutcome = "APPROVED" | "DENIED" | "CHANGES_REQUESTED";
+
 export interface Decision {
-  decision: "APPROVED" | "DENIED";
+  decision: DecisionOutcome;
+  /** Required (non-blank) for CHANGES_REQUESTED; at most 4000 characters. */
   comment?: string | undefined;
 }
 
@@ -55,7 +69,16 @@ export interface Approval {
   expiresAt: string;
   decidedAt: string | null;
   decisionComment: string | null;
+  decisionOutcome: DecisionOutcome | null;
   approverId: string | null;
+  title: string | null;
+  reviewMarkdown: string | null;
+  /** reviewDigest() of the title, explanation and review document; bound into receipts. */
+  reviewDigest: string | null;
+  supersedesApprovalId: string | null;
+  supersededByApprovalId: string | null;
+  /** Absolute web URL where a human reviews this approval. */
+  reviewUrl: string | null;
   receipt?: string | undefined;
 }
 
@@ -70,7 +93,7 @@ export interface ApprovalCallback {
   state: string;
 }
 
-export interface ApprovalRequest {
+export interface ApprovalRequest extends ReviewContent {
   action: Action;
   explanation: string;
   suggestedApproverId?: string | undefined;
