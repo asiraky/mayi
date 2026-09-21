@@ -134,6 +134,33 @@ describe.sequential("OAuth reconnect consent", () => {
     expect(agents).toEqual([expect.objectContaining({ id: ids.agent, name: "Ledger install (prod)" })]);
   });
 
+  it("lets a racing owner revoke win over a reconnect without deadlocking", async () => {
+    for (let round = 0; round < 5; round += 1) {
+      const agentId = createId();
+      await database().sql`
+        insert into agents (id, workspace_id, name, client_id, scopes, credential_hash, credential_expires_at, created_by)
+        values (${agentId}, ${ids.installerWorkspace}, 'Racing install', ${ids.client}, ${["approval:read"]}, ${await tokenHash(`access-${agentId}`)}, now() + interval '1 hour', ${ids.installer})
+      `;
+      await database().sql`
+        insert into refresh_tokens (id, agent_id, family_id, token_hash, expires_at)
+        values (${createId()}, ${agentId}, ${createId()}, ${await tokenHash(`refresh-${agentId}`)}, now() + interval '30 days')
+      `;
+      const redirect = await allow(installerToken, { connection: agentId });
+      const code = new URL(redirect.headers.get("location")!).searchParams.get("code")!;
+      const [exchanged, revoked] = await Promise.all([
+        exchange(code),
+        handle(new Request(`http://mayi.test/api/agents/${agentId}`, { method: "DELETE", headers: { authorization: `Bearer ${installerToken}` } })),
+      ]);
+      // Whichever runs first, the revoke always lands and always has the last word.
+      expect(revoked.status).toBe(200);
+      expect([200, 400]).toContain(exchanged.status);
+      const [agent] = await database().sql`select revoked_by, credential_hash from agents where id = ${agentId}`;
+      expect(agent).toMatchObject({ revoked_by: ids.installer, credential_hash: null });
+      const live = await database().sql`select 1 from refresh_tokens where agent_id = ${agentId} and revoked_at is null`;
+      expect(live).toHaveLength(0);
+    }
+  });
+
   it("treats an owner revoke as final, even over an automatic revoke", async () => {
     // Refresh-token reuse leaves the connection revoked but reconnectable...
     await database().sql`update agents set revoked_at = now(), credential_hash = null where id = ${ids.agent}`;

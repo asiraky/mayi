@@ -411,15 +411,20 @@ export function App() {
                           {(agent.scopes as string[]).join(" · ")}
                         </span>
                       </span>
-                      {agent.revokedAt ? (
-                        <span className="shrink-0 text-[12px] text-muted-foreground">
-                          Revoked {relativeTime(String(agent.revokedAt))}
-                        </span>
-                      ) : (
-                        <Button variant="outline" size="sm" className="shrink-0" onClick={() => void revokeAgent(agent)}>
-                          Revoke
-                        </Button>
-                      )}
+                      <span className="flex shrink-0 items-center gap-3">
+                        {Boolean(agent.revokedAt) && (
+                          <span className="text-[12px] text-muted-foreground">
+                            {agent.revokedByOwner ? "Revoked" : "Suspended"} {relativeTime(String(agent.revokedAt))}
+                          </span>
+                        )}
+                        {/* An automatic revoke (refresh-token reuse) can still be reconnected,
+                            so the owner keeps the option to make it final. */}
+                        {!agent.revokedByOwner && (
+                          <Button variant="outline" size="sm" onClick={() => void revokeAgent(agent)}>
+                            Revoke
+                          </Button>
+                        )}
+                      </span>
                     </Row>
                   ))
                 ) : (

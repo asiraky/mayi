@@ -39,10 +39,9 @@ export default defineEventHandler(async (event) => {
       let agentId: string;
       if (code.agent_id) {
         // Reconnect: renew credentials on the existing agent so its approvals, inputs and
-        // idempotency keys stay reachable. Refresh rows are locked before the agent, the
-        // same order the refresh grant takes them, so the two cannot deadlock.
+        // idempotency keys stay reachable. Lock order is agent, then its refresh rows —
+        // the same as the refresh grant and the owner revoke, so none of them can deadlock.
         agentId = String(code.agent_id);
-        await sql`select id from refresh_tokens where agent_id = ${agentId} for update`;
         const target = await findReconnectTarget(sql, { agentId, clientId: body.client_id!, workspaceId: String(code.workspace_id), lock: true });
         // The owner may have revoked the connection between consent and exchange.
         if (target.status !== "ok") throw createError({ statusCode: 400, statusMessage: "Connection can no longer be reconnected" });
@@ -68,11 +67,17 @@ export default defineEventHandler(async (event) => {
     });
   }
   if (body.grant_type === "refresh_token") {
+    const presented = await tokenHash(body.refresh_token ?? "");
     const result = await database().sql.begin(async (sql) => {
+      // Take the agent lock before any refresh row (see the reconnect path above). The
+      // agent a token belongs to never changes, so this unlocked read is safe to act on.
+      const [owner] = await sql`select agent_id from refresh_tokens where token_hash = ${presented}`;
+      if (!owner) return { invalid: true as const };
+      await sql`select id from agents where id = ${owner.agent_id} for update`;
       const rows = await sql`
         select r.*, a.scopes, a.client_id, a.revoked_at as agent_revoked_at
         from refresh_tokens r join agents a on a.id = r.agent_id
-        where r.token_hash = ${await tokenHash(body.refresh_token ?? "")}
+        where r.token_hash = ${presented}
         for update of r, a
       `;
       const old = rows[0];
