@@ -1,4 +1,4 @@
-import { actionName, Action, CreateApproval, Id, canonicalDigest, createId } from "@mayi/contracts";
+import { actionName, Action, CreateApproval, Id, MAX_REVIEW_MARKDOWN_LENGTH, MAX_REVIEW_TITLE_LENGTH, canonicalDigest, createId } from "@mayi/contracts";
 import { freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "@mayi/domain";
 import { createError, defineEventHandler } from "h3";
 import { z } from "zod";
@@ -7,12 +7,13 @@ import { database } from "../utils/runtime";
 import { serializeApproval } from "../utils/serialize";
 import { activateApprovalCallback } from "../utils/callback-outbox";
 import { readBoundedJsonBody } from "../utils/http";
+import { prepareReviewContent, rethrowSupersedesConflict } from "../utils/review-content";
 
 const Call = z.object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]).optional(), method: z.string(), params: z.record(z.string(), z.unknown()).optional() });
 const MCP_CREATE_OPERATION = "approval.create.mcp";
 
 const tools = [
-  { name: "create_approval", description: "Create and seal an exact approval request without evidence. Use HTTP uploads for evidence.", inputSchema: { type: "object", required: ["action", "explanation", "idempotencyKey"], properties: { action: { type: "object" }, explanation: { type: "string" }, expiresInSeconds: { type: "integer" }, enforcement: { enum: ["cooperative", "verified", "consumed"] }, suggestedApproverId: { type: "string", pattern: "^[A-Za-z]{12}$" }, idempotencyKey: { type: "string" } } } },
+  { name: "create_approval", description: "Create and seal an exact approval request without evidence. Use HTTP uploads for evidence.", inputSchema: { type: "object", required: ["action", "explanation", "idempotencyKey"], properties: { action: { type: "object" }, explanation: { type: "string" }, expiresInSeconds: { type: "integer" }, enforcement: { enum: ["cooperative", "verified", "consumed"] }, suggestedApproverId: { type: "string", pattern: "^[A-Za-z]{12}$" }, title: { type: "string", minLength: 1, maxLength: MAX_REVIEW_TITLE_LENGTH, description: "One-line title the reviewer sees first." }, reviewMarkdown: { type: "string", minLength: 1, maxLength: MAX_REVIEW_MARKDOWN_LENGTH, description: "Markdown review document shown to the reviewer." }, supersedesApprovalId: { type: "string", pattern: "^[A-Za-z]{12}$", description: "A resolved approval by this agent that this request revises." }, idempotencyKey: { type: "string" } } } },
   { name: "get_approval", description: "Read authoritative approval state and receipt.", inputSchema: { type: "object", required: ["id"], properties: { id: { type: "string", pattern: "^[A-Za-z]{12}$" } } } },
   { name: "cancel_approval", description: "Cancel an owned draft or pending approval.", inputSchema: { type: "object", required: ["id"], properties: { id: { type: "string", pattern: "^[A-Za-z]{12}$" } } } },
 ];
@@ -52,11 +53,12 @@ export default defineEventHandler(async (event) => {
       validateSuggestedApprover(input.suggestedApproverId, eligible.map((row) => String(row.user_id)));
       if (!eligible.length) throw new Error("No eligible approver exists");
       const digests = await freezeDigests(input.action, []);
+      const review = await prepareReviewContent(sql, auth, input);
       const approvalId = createId();
       const [approval] = await sql`
-        insert into approvals (id, workspace_id, agent_id, state, action, explanation, enforcement, action_digest, manifest_digest, policy_version, high_risk, expires_at, sealed_at)
-        values (${approvalId}, ${auth.workspaceId}, ${auth.agentId}, 'PENDING', ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${digests.actionDigest}, ${digests.manifestDigest}, ${workspace!.policy_version}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}), now()) returning id
-      `;
+        insert into approvals (id, workspace_id, agent_id, state, action, explanation, enforcement, action_digest, manifest_digest, policy_version, high_risk, expires_at, sealed_at, title, review_markdown, review_digest, supersedes_approval_id)
+        values (${approvalId}, ${auth.workspaceId}, ${auth.agentId}, 'PENDING', ${JSON.stringify(input.action)}::jsonb, ${input.explanation}, ${input.enforcement}, ${digests.actionDigest}, ${digests.manifestDigest}, ${workspace!.policy_version}, ${isHighRisk(input.action)}, now() + make_interval(secs => ${input.expiresInSeconds}), now(), ${review.title}, ${review.reviewMarkdown}, ${review.reviewDigest}, ${review.supersedesApprovalId}) returning id
+      `.catch(rethrowSupersedesConflict);
       const storedApprovalId = String(approval!.id);
       for (const row of eligible) await sql`insert into eligible_approvers (approval_id, workspace_id, user_id) values (${storedApprovalId}, ${auth.workspaceId}, ${row.user_id})`;
       await sql`insert into idempotency_keys (workspace_id, credential_id, operation, key, payload_hash, response, expires_at) values (${auth.workspaceId}, ${auth.agentId}, ${MCP_CREATE_OPERATION}, ${idempotencyKey}, ${payloadHash}, ${JSON.stringify({ id: storedApprovalId })}::jsonb, now() + interval '24 hours')`;
@@ -66,7 +68,7 @@ export default defineEventHandler(async (event) => {
         const deliveries = await sql`insert into forwarding_deliveries (id, workspace_id, approval_id, destination_id, origin_id) values (${createId()}, ${auth.workspaceId}, ${storedApprovalId}, ${rule.destination_id}, ${storedApprovalId}) on conflict do nothing returning id`;
         if (deliveries[0]) await sql`insert into jobs (id, workspace_id, type, dedupe_key, payload) values (${createId()}, ${auth.workspaceId}, ${rule.type === "EMAIL" ? "email.approval_pending" : "webhook.approval_pending"}, ${`${storedApprovalId}:${rule.destination_id}`}, ${JSON.stringify({ approvalId: storedApprovalId, destinationId: String(rule.destination_id), deliveryId: String(deliveries[0].id) })}::jsonb) on conflict do nothing`;
       }
-      await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.sealed", subjectType: "approval", subjectId: storedApprovalId, metadata: digests }, sql);
+      await audit({ workspaceId: auth.workspaceId, actorType: "agent", actorId: auth.agentId, eventType: "approval.sealed", subjectType: "approval", subjectId: storedApprovalId, metadata: { ...digests, reviewDigest: review.reviewDigest, supersedesApprovalId: review.supersedesApprovalId } }, sql);
       return storedApprovalId;
     });
     return result(request.id, toolResult(await serializeApproval(auth.workspaceId, id)));

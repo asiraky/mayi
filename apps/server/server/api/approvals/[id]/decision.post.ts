@@ -38,8 +38,12 @@ export default defineEventHandler(async (event) => {
       `;
       if (!eligible.length) throw createError({ statusCode: 403, statusMessage: "You are not currently eligible to decide this request" });
       if (approval.high_risk) requireRecentAuthentication(auth.recentAuthAt, now);
+      // Requesting changes is a denial carrying required feedback: the state is DENIED (no
+      // receipt, callback reports "denied") and the outcome records why.
+      const state = input.decision === "APPROVED" ? "APPROVED" : "DENIED";
       await sql`
-        update approvals set state = ${input.decision}, decided_at = now(), approver_id = ${auth.userId}, decision_comment = ${input.comment ?? null}
+        update approvals set state = ${state}, decision_outcome = ${input.decision}, decided_at = now(),
+          approver_id = ${auth.userId}, decision_comment = ${input.comment ?? null}
         where id = ${approvalId} and state = 'PENDING'
       `;
       if (input.decision === "APPROVED") {
@@ -54,6 +58,7 @@ export default defineEventHandler(async (event) => {
           workspace_id: auth.workspaceId, agent_id: String(approval.agent_id), policy_version: Number(approval.policy_version),
           action_digest: String(approval.action_digest), artefact_manifest_digest: String(approval.manifest_digest),
           approver_id: auth.userId, enforcement: approval.enforcement,
+          ...(approval.review_digest ? { review_digest: String(approval.review_digest) } : {}),
         }, keys.privateJwk, keys.kid);
         await sql`
           insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at)

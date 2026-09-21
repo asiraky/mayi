@@ -74,6 +74,8 @@ export const Approval = z.object({
   reviewDigest: z.string().nullable().default(null),
   supersedesApprovalId: Id.nullable().default(null),
   supersededByApprovalId: Id.nullable().default(null),
+  /** Absolute web URL where a human reviews this approval. Stable for the approval's lifetime. */
+  reviewUrl: z.url().nullable().default(null),
   receipt: z.string().optional(),
 });
 export type Approval = z.infer<typeof Approval>;

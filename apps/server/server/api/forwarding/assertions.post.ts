@@ -50,7 +50,7 @@ export default defineEventHandler(async (event) => {
     if (!eligible.length) throw createError({ statusCode: 403, statusMessage: "Mapped approver is no longer eligible" });
     try { await sql`insert into external_nonces (destination_id, nonce) values (${claims.destination_id}, ${claims.nonce})`; }
     catch { throw createError({ statusCode: 409, statusMessage: "External assertion nonce was already used" }); }
-    await sql`update approvals set state = ${claims.decision}, decided_at = now(), approver_id = ${destination.mapped_user_id}, decision_comment = ${claims.comment ?? null} where id = ${claims.request_id}`;
+    await sql`update approvals set state = ${claims.decision}, decision_outcome = ${claims.decision}, decided_at = now(), approver_id = ${destination.mapped_user_id}, decision_comment = ${claims.comment ?? null} where id = ${claims.request_id}`;
     if (claims.decision === "APPROVED") {
       const receiptId = createId(); const now = new Date(approval.database_now as Date); const expires = new Date(approval.expires_at as Date);
       const exp = Math.min(Math.floor(expires.getTime() / 1000), Math.floor(now.getTime() / 1000) + 900); const keys = await signingKeys();
@@ -58,6 +58,7 @@ export default defineEventHandler(async (event) => {
       const token = await signReceipt({ iss: getConfig().receiptIssuer, aud: audience, sub: claims.request_id, jti: receiptId,
         iat: Math.floor(now.getTime() / 1000), exp, workspace_id: claims.workspace_id, agent_id: String(approval.agent_id), policy_version: claims.policy_version,
         action_digest: claims.action_digest, artefact_manifest_digest: claims.artefact_manifest_digest, approver_id: String(destination.mapped_user_id), enforcement: approval.enforcement,
+        ...(approval.review_digest ? { review_digest: String(approval.review_digest) } : {}),
       }, keys.privateJwk, keys.kid);
       await sql`insert into receipts (id, approval_id, workspace_id, audience, compact_jws, expires_at) values (${receiptId}, ${claims.request_id}, ${claims.workspace_id}, ${audience}, ${token}, to_timestamp(${exp}))`;
     }

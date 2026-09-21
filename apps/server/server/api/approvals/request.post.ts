@@ -5,6 +5,7 @@ import { authorizeApprovalCallback } from "../../utils/approval-callback";
 import { audit, requireAgent } from "../../utils/auth";
 import { asHttpError, bodyAs, requireIdempotencyKey } from "../../utils/http";
 import { queuePendingNotifications } from "../../utils/pending-notifications";
+import { prepareReviewContent, rethrowSupersedesConflict } from "../../utils/review-content";
 import { storedArtefactMatches, type ArtefactMediaType } from "../../utils/artefacts";
 import { database, objects } from "../../utils/runtime";
 import { serializeApproval } from "../../utils/serialize";
@@ -137,18 +138,21 @@ export default defineEventHandler(async (event) => {
       };
     });
     const digests = await freezeDigests(input.action, manifest);
+    const review = await prepareReviewContent(sql, auth, input);
     const id = createId();
     await sql`
       insert into approvals (
         id, workspace_id, agent_id, state, action, explanation, enforcement,
-        action_digest, manifest_digest, policy_version, high_risk, expires_at, sealed_at
+        action_digest, manifest_digest, policy_version, high_risk, expires_at, sealed_at,
+        title, review_markdown, review_digest, supersedes_approval_id
       ) values (
         ${id}, ${auth.workspaceId}, ${auth.agentId}, 'PENDING', ${JSON.stringify(input.action)}::jsonb,
         ${input.explanation}, 'cooperative', ${digests.actionDigest}, ${digests.manifestDigest},
         ${workspace.policy_version}, ${isHighRisk(input.action)},
-        now() + make_interval(secs => ${input.expiresInSeconds}), now()
+        now() + make_interval(secs => ${input.expiresInSeconds}), now(),
+        ${review.title}, ${review.reviewMarkdown}, ${review.reviewDigest}, ${review.supersedesApprovalId}
       )
-    `;
+    `.catch(rethrowSupersedesConflict);
     await sql`
       insert into approval_callbacks (id, approval_id, workspace_id, url, state)
       values (${createId()}, ${id}, ${auth.workspaceId}, ${input.callback.url}, ${input.callback.state})
@@ -193,7 +197,7 @@ export default defineEventHandler(async (event) => {
       eventType: "approval.sealed",
       subjectType: "approval",
       subjectId: id,
-      metadata: digests,
+      metadata: { ...digests, reviewDigest: review.reviewDigest, supersedesApprovalId: review.supersedesApprovalId },
     }, sql);
     return response;
   });

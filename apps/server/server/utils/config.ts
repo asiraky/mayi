@@ -13,3 +13,20 @@ export function getConfig() {
     retentionDays: Number(process.env.RETENTION_DAYS ?? 90),
   };
 }
+
+/**
+ * Where humans open the web app. It is co-served by this server in production;
+ * WEB_ORIGIN overrides for dev, where Vite hosts it on its own port.
+ */
+export function webOrigin(): string {
+  return (process.env.WEB_ORIGIN ?? process.env.PUBLIC_ORIGIN ?? "http://localhost:3000").replace(/\/+$/, "");
+}
+
+/** The one link to an approval's review page, shared by API responses and email. */
+export function approvalReviewUrl(approvalId: string): string {
+  return `${webOrigin()}/?approval=${encodeURIComponent(approvalId)}`;
+}
+
+export function inputReviewUrl(inputId: string): string {
+  return `${webOrigin()}/?input=${encodeURIComponent(inputId)}`;
+}

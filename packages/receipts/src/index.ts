@@ -16,6 +16,8 @@ export const ReceiptClaims = z.object({
   artefact_manifest_digest: z.string().regex(/^[a-f0-9]{64}$/),
   approver_id: Id,
   enforcement: z.enum(["cooperative", "verified", "consumed"]),
+  /** reviewDigest() of the title, explanation and review document the approver read. */
+  review_digest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
 });
 export type ReceiptClaims = z.infer<typeof ReceiptClaims>;
 

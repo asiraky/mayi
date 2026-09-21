@@ -47,6 +47,27 @@ describe("approval requested email", () => {
   });
 });
 
+describe("approval requested email with a title", () => {
+  it("leads with the title and keeps the explanation as supporting text", async () => {
+    const html = await renderApprovalRequestedEmail({
+      actionKind: "deploy_release",
+      title: "Ship release 1.2.3 to production",
+      explanation: "The fix must ship before the demo.",
+      agentName: "Eve",
+      workspaceName: "Acme",
+      highRisk: false,
+      expiresAtIso: "2026-07-17T00:00:00.000Z",
+      expiresInText: "in 1 hour",
+      reviewUrl: "https://mayi.test/?approval=xyz789",
+      approvalId: "xyz789",
+    });
+    const titleAt = html.indexOf("Ship release 1.2.3 to production");
+    const explanationAt = html.indexOf("The fix must ship before the demo.");
+    expect(titleAt).toBeGreaterThan(-1);
+    expect(explanationAt).toBeGreaterThan(titleAt);
+  });
+});
+
 describe("password reset email", () => {
   it("carries the reset link, expiry note and no-action reassurance", async () => {
     const html = await renderPasswordResetEmail({
