@@ -2,6 +2,7 @@ import { ApprovalRequest, canonicalDigest, createId } from "@mayi/contracts";
 import { freezeDigests, isHighRisk, validateActionForEnforcement, validateSuggestedApprover } from "@mayi/domain";
 import { createError, defineEventHandler } from "h3";
 import { authorizeApprovalCallback } from "../../utils/approval-callback";
+import { approvalReviewUrl } from "../../utils/config";
 import { audit, requireAgent } from "../../utils/auth";
 import { asHttpError, bodyAs, requireIdempotencyKey } from "../../utils/http";
 import { queuePendingNotifications } from "../../utils/pending-notifications";
@@ -11,6 +12,16 @@ import { database, objects } from "../../utils/runtime";
 import { serializeApproval } from "../../utils/serialize";
 
 const OPERATION = "approval.request";
+
+// A replay returns the response stored at first use. Responses stored before reviewUrl
+// existed lack it; add it so every approval response carries one, and leave the rest of
+// the original snapshot (state included) untouched.
+export function withReviewUrl(response: unknown): unknown {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return response;
+  const stored = response as { id?: unknown; reviewUrl?: unknown };
+  if (typeof stored.reviewUrl === "string" || typeof stored.id !== "string") return response;
+  return { ...stored, reviewUrl: approvalReviewUrl(stored.id) };
+}
 
 export default defineEventHandler(async (event) => {
   const auth = await requireAgent(event, "approval:create");
@@ -45,7 +56,7 @@ export default defineEventHandler(async (event) => {
     if (replay[0].payload_hash !== payloadHash) {
       throw createError({ statusCode: 409, statusMessage: "Idempotency key was reused with different content" });
     }
-    return replay[0].response;
+    return withReviewUrl(replay[0].response);
   }
 
   await authorizeApprovalCallback(auth, input.callback.url);
@@ -69,7 +80,7 @@ export default defineEventHandler(async (event) => {
       if (previous[0].payload_hash !== payloadHash) {
         throw createError({ statusCode: 409, statusMessage: "Idempotency key was reused with different content" });
       }
-      return previous[0].response;
+      return withReviewUrl(previous[0].response);
     }
 
     const [workspace] = await sql`

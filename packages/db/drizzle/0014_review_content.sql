@@ -15,6 +15,20 @@ ALTER TABLE "approvals" ADD CONSTRAINT "approvals_decision_outcome_check" CHECK 
 ALTER TABLE "approvals" ADD CONSTRAINT "approvals_decision_outcome_state_check" CHECK (("approvals"."state" IN ('APPROVED', 'DENIED')) = ("approvals"."decision_outcome" IS NOT NULL));--> statement-breakpoint
 ALTER TABLE "approvals" ADD CONSTRAINT "approvals_decision_outcome_approved_check" CHECK (("approvals"."decision_outcome" = 'APPROVED') = ("approvals"."state" = 'APPROVED'));--> statement-breakpoint
 ALTER TABLE "approvals" ADD CONSTRAINT "approvals_changes_requested_check" CHECK ("approvals"."decision_outcome" IS DISTINCT FROM 'CHANGES_REQUESTED' OR ("approvals"."state" = 'DENIED' AND "approvals"."decision_comment" IS NOT NULL AND "approvals"."decision_comment" ~ '\S'));--> statement-breakpoint
+-- reviewDigest() from @mayi/contracts in SQL: sha256 over the canonical JSON
+-- {"explanation":…,"reviewMarkdown":…,"title":…,"v":1}. to_json(text) escapes strings
+-- exactly as JSON.stringify does for text PostgreSQL can store.
+CREATE FUNCTION "mayi_review_digest_v1"("explanation" text, "title" text, "review_markdown" text) RETURNS text
+  LANGUAGE sql IMMUTABLE AS $$
+  SELECT encode(sha256(convert_to(
+    '{"explanation":' || to_json("explanation")::text
+    || ',"reviewMarkdown":' || coalesce(to_json("review_markdown")::text, 'null')
+    || ',"title":' || coalesce(to_json("title")::text, 'null')
+    || ',"v":1}', 'UTF8')), 'hex')
+$$;--> statement-breakpoint
+-- Approvals that predate review content get the digest of what their reviewer reads,
+-- so a receipt issued for them after this migration still carries review_digest.
+UPDATE "approvals" SET "review_digest" = "mayi_review_digest_v1"("explanation", "title", "review_markdown") WHERE "review_digest" IS NULL;--> statement-breakpoint
 -- What the reviewer read and the action they authorize are frozen once the row exists.
 -- Application code never rewrites them; this makes that a database guarantee.
 CREATE FUNCTION "approvals_freeze_review_content"() RETURNS trigger LANGUAGE plpgsql AS $$

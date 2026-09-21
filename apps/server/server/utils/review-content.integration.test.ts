@@ -164,6 +164,33 @@ describe.sequential("review content and revisions", () => {
     expect(approval.reviewDigest).toBe(await reviewDigest({ explanation: input.explanation }));
   });
 
+  it("computes the same digest in SQL as reviewDigest() for backfilled approvals", async () => {
+    const cases = [
+      { explanation: "plain", title: null, reviewMarkdown: null },
+      { explanation: "quotes \" and \\ backslash / slash", title: "t\u00e9st \u2014 \ud83d\udea2", reviewMarkdown: "line\nbreak\ttab\r\u0001\u001f\u007f" },
+      { explanation: "<script>&amp;</script>", title: "Only a title", reviewMarkdown: null },
+      { explanation: "e", title: null, reviewMarkdown: "# Only markdown\n\n\u2028\u2029" },
+    ];
+    for (const content of cases) {
+      const [row] = await database().sql`
+        select mayi_review_digest_v1(${content.explanation}, ${content.title}, ${content.reviewMarkdown}) as digest
+      `;
+      expect(row!.digest).toBe(await reviewDigest(content));
+    }
+  });
+
+  it("adds reviewUrl to a replayed response stored before reviewUrl existed", async () => {
+    const key = createId();
+    const input = baseRequest();
+    const first = await requested(input, { key });
+    await database().sql`
+      update idempotency_keys set response = response - 'reviewUrl'
+      where credential_id = ${ids.agent} and operation = 'approval.request' and key = ${key}
+    `;
+    const replay = await requested(input, { key });
+    expect(replay).toEqual(first);
+  });
+
   it("binds review content into the idempotency fingerprint", async () => {
     const input = { ...baseRequest(), title: "First title" };
     const key = createId();
