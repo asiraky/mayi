@@ -1,8 +1,38 @@
 import { createError, defineEventHandler, getQuery, sendRedirect } from "h3";
 import { requireUser, type UserAuth } from "../../utils/auth";
+import { findReconnectTarget, parseConnectionId, parseConnectionLabel } from "../../utils/oauth-connection";
 import { database } from "../../utils/runtime";
 
 function escape(value: string): string { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!); }
+
+function page(title: string, body: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(title)} — May I?</title><style>
+:root{color-scheme:light dark;--background:#ecedeb;--card:#f8f9f7;--ink:#15181a;--body:#4a5250;--muted:#6b7472;--border:rgba(21,24,26,.12);--primary:#3d2fd6;--primary-hover:#2a1fb0;--primary-foreground:#ecedeb}
+@media (prefers-color-scheme:dark){:root{--background:#121514;--card:#191d1c;--ink:#e8eae7;--body:#b3bbb8;--muted:#8a938f;--border:rgba(232,234,231,.12);--primary-hover:#4c40fe}}
+*{box-sizing:border-box}
+body{margin:0;padding:24px 16px 48px;background:var(--background);color:var(--ink);font-family:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Roboto,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.wrap{width:100%;max-width:420px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px 24px}
+.kicker{color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;margin:0 0 10px}
+h1{font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-0.01em;margin:0 0 12px;overflow-wrap:break-word}
+.prose{color:var(--body);font-size:15px;margin:0 0 8px}
+.scopes{margin:0 0 24px;padding:0;list-style:none}
+.scopes li{color:var(--body);font-size:15px;padding:9px 0 9px 24px;border-top:1px solid var(--border);position:relative}
+.scopes li::before{content:"";position:absolute;left:4px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--primary)}
+.actions{display:flex;flex-direction:column;gap:10px}
+button{appearance:none;width:100%;min-height:44px;padding:12px 18px;border-radius:10px;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+.allow{background:var(--primary);border:1px solid var(--primary);color:var(--primary-foreground)}
+.allow:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+.deny{background:transparent;border:1px solid var(--border);color:var(--ink)}
+.deny:hover{border-color:var(--muted)}
+button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.footnote{color:var(--muted);font-size:12px;line-height:1.5;margin:20px 0 0}
+.problem{color:var(--body);font-size:15px;margin:0 0 16px}
+.identity{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 2px;overflow-wrap:break-word}
+.signout{appearance:none;background:none;border:none;padding:0;margin:0 0 16px;width:auto;min-height:0;color:var(--muted);font:inherit;font-size:12px;font-weight:500;text-decoration:underline;cursor:pointer}
+@media (min-width:480px){.actions{flex-direction:row}.actions button{width:auto;flex:1}}
+</style></head><body>${body}</body></html>`;
+}
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event);
@@ -11,6 +41,8 @@ export default defineEventHandler(async (event) => {
   const challenge = String(query.code_challenge ?? "");
   const scope = String(query.scope ?? "approval:create approval:read approval:cancel");
   if (query.response_type !== "code" || query.code_challenge_method !== "S256" || !challenge) throw createError({ statusCode: 400, statusMessage: "Authorization code with PKCE S256 is required" });
+  const label = parseConnectionLabel(query.label);
+  const connection = parseConnectionId(query.connection);
   let auth: UserAuth;
   try {
     auth = await requireUser(event);
@@ -44,29 +76,26 @@ export default defineEventHandler(async (event) => {
     ? `<p class="identity">Signed in as ${escape(String(identity.email))} · workspace ${escape(String(identity.name))}</p><form method="post" action="/api/auth/signout"><input type="hidden" name="returnTo" value="${escape(currentUrl)}"><button class="signout" type="submit">Not you? Sign out</button></form>`
     : "";
   event.node.res.setHeader("content-type", "text/html; charset=utf-8");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect agent — May I?</title><style>
-:root{color-scheme:light dark;--background:#ecedeb;--card:#f8f9f7;--ink:#15181a;--body:#4a5250;--muted:#6b7472;--border:rgba(21,24,26,.12);--primary:#3d2fd6;--primary-hover:#2a1fb0;--primary-foreground:#ecedeb}
-@media (prefers-color-scheme:dark){:root{--background:#121514;--card:#191d1c;--ink:#e8eae7;--body:#b3bbb8;--muted:#8a938f;--border:rgba(232,234,231,.12);--primary-hover:#4c40fe}}
-*{box-sizing:border-box}
-body{margin:0;padding:24px 16px 48px;background:var(--background);color:var(--ink);font-family:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Roboto,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.wrap{width:100%;max-width:420px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px 24px}
-.kicker{color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.09em;text-transform:uppercase;margin:0 0 10px}
-h1{font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-0.01em;margin:0 0 12px;overflow-wrap:break-word}
-.prose{color:var(--body);font-size:15px;margin:0 0 8px}
-.scopes{margin:0 0 24px;padding:0;list-style:none}
-.scopes li{color:var(--body);font-size:15px;padding:9px 0 9px 24px;border-top:1px solid var(--border);position:relative}
-.scopes li::before{content:"";position:absolute;left:4px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--primary)}
-.actions{display:flex;flex-direction:column;gap:10px}
-button{appearance:none;width:100%;min-height:44px;padding:12px 18px;border-radius:10px;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
-.allow{background:var(--primary);border:1px solid var(--primary);color:var(--primary-foreground)}
-.allow:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
-.deny{background:transparent;border:1px solid var(--border);color:var(--ink)}
-.deny:hover{border-color:var(--muted)}
-button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-.footnote{color:var(--muted);font-size:12px;line-height:1.5;margin:20px 0 0}
-.identity{color:var(--muted);font-size:12px;line-height:1.5;margin:0 0 2px;overflow-wrap:break-word}
-.signout{appearance:none;background:none;border:none;padding:0;margin:0 0 16px;width:auto;min-height:0;color:var(--muted);font:inherit;font-size:12px;font-weight:500;text-decoration:underline;cursor:pointer}
-@media (min-width:480px){.actions{flex-direction:row}.actions button{width:auto;flex:1}}
-</style></head><body><div class="wrap"><main class="card"><p class="kicker">Connection request</p><h1>Connect ${escape(String(client.name))}?</h1><p class="prose">This agent is asking to act in your current workspace. It will be able to:</p><ul class="scopes">${scopeItems}</ul>${identityBlock}<form method="post" action="/api/oauth/consent"><input type="hidden" name="client_id" value="${escape(clientId)}"><input type="hidden" name="redirect_uri" value="${escape(redirectUri)}"><input type="hidden" name="code_challenge" value="${escape(challenge)}"><input type="hidden" name="scope" value="${escape(scope)}"><input type="hidden" name="state" value="${escape(String(query.state ?? ""))}"><div class="actions"><button class="allow" name="decision" value="approve">Allow</button><button class="deny" name="decision" value="deny">Deny</button></div></form></main><p class="footnote">Denying returns you to the agent without granting any access.</p></div></body></html>`;
+  const reconnect = connection
+    ? await findReconnectTarget(database().sql, { agentId: connection, clientId, workspaceId: auth.workspaceId })
+    : null;
+  if (reconnect && reconnect.status !== "ok") {
+    // Never fall through to a fresh connection here: it would silently lose the
+    // installation's access to the approvals it already requested.
+    const problem = reconnect.status === "owner_revoked"
+      ? "A workspace owner revoked this connection, so it cannot be reconnected. Go back to the app and start a new connection instead."
+      : "This connection does not belong to the workspace you are signed in to. Sign in with the account that originally connected it.";
+    event.node.res.statusCode = 409;
+    return page("Cannot reconnect", `<div class="wrap"><main class="card"><p class="kicker">Reconnection request</p><h1>Can&#39;t reconnect ${escape(String(client.name))}</h1><p class="problem">${escape(problem)}</p>${identityBlock}</main></div>`);
+  }
+  // A label names one installation of the client; on reconnect without a new label
+  // the connection keeps the name the user already knows it by.
+  const displayName = label ?? (reconnect ? reconnect.name : String(client.name));
+  const verb = reconnect ? "Reconnect" : "Connect";
+  const prose = reconnect
+    ? `${escape(String(client.name))} is asking to renew its existing connection to your current workspace. Requests it has already made stay attached to it. It will be able to:`
+    : displayName === String(client.name)
+      ? "This agent is asking to act in your current workspace. It will be able to:"
+      : `${escape(String(client.name))} is asking to act in your current workspace. It will be able to:`;
+  return page(`${verb} agent`, `<div class="wrap"><main class="card"><p class="kicker">${reconnect ? "Reconnection" : "Connection"} request</p><h1>${verb} ${escape(displayName)}?</h1><p class="prose">${prose}</p><ul class="scopes">${scopeItems}</ul>${identityBlock}<form method="post" action="/api/oauth/consent"><input type="hidden" name="client_id" value="${escape(clientId)}"><input type="hidden" name="redirect_uri" value="${escape(redirectUri)}"><input type="hidden" name="code_challenge" value="${escape(challenge)}"><input type="hidden" name="scope" value="${escape(scope)}"><input type="hidden" name="state" value="${escape(String(query.state ?? ""))}"><input type="hidden" name="label" value="${escape(label ?? "")}"><input type="hidden" name="connection" value="${escape(connection ?? "")}"><div class="actions"><button class="allow" name="decision" value="approve">Allow</button><button class="deny" name="decision" value="deny">Deny</button></div></form></main><p class="footnote">Denying returns you to the agent without granting any access.</p></div>`);
 });

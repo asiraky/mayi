@@ -12,6 +12,25 @@ it; then revoke the old connection through the agent disconnect flow. Existing
 tokens remain bound to the old client and never inherit the replacement client's
 callback URLs.
 
+The authorization request accepts two optional parameters beyond standard
+PKCE. `label` (at most 100 characters) names this installation of the client; it
+is shown on the consent screen and becomes the connection's name, so several
+installations of one client stay distinguishable. `connection` carries the
+`agent_id` of an existing connection to reconnect it: the token exchange then
+renews credentials on that same agent instead of creating a new one, so the
+approvals and inputs it already requested, and its idempotency keys, stay
+reachable. Every token response, including refreshes, returns `agent_id`; hosts
+should store it and send it as `connection` whenever they re-run the browser flow
+for an installation that was connected before.
+
+A reconnect must be consented to from the workspace that owns the connection and
+use the same OAuth client. Otherwise the consent screen stops with an error and
+an option to switch account; it never falls back to creating a fresh connection.
+All refresh tokens issued before a reconnect are revoked. A connection revoked
+automatically after refresh-token reuse can be reconnected. A connection revoked
+by a workspace owner cannot: that revoke is final, and the host must start a new
+connection by omitting `connection`.
+
 The SDK never owns this OAuth session. The embedding host runs the browser
 Authorization Code + PKCE flow, stores and rotates the refresh grant, and
 supplies current access tokens to the SDK or Eve adapter.

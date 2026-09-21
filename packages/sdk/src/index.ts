@@ -493,6 +493,11 @@ export class MayiClient {
     return this.request("/api/agents", { method: "POST", body: JSON.stringify(input) }) as Promise<{ id: string; token: string }>;
   }
 
+  /** Owner-only and final: a revoked connection cannot be reconnected. */
+  revokeAgent(id: string) {
+    return this.request(`/api/agents/${encodeURIComponent(id)}`, { method: "DELETE" }) as Promise<{ ok: true }>;
+  }
+
   registerDevice(token: string, platform: "ios" | "android") {
     return this.request("/api/devices", { method: "POST", body: JSON.stringify({ token, platform }) }) as Promise<{ ok: true }>;
   }

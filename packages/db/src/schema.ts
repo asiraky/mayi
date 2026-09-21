@@ -102,7 +102,15 @@ export const agents = pgTable("agents", {
   createdAt,
   lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
-}, (t) => [index("agents_workspace_idx").on(t.workspaceId), index("agents_client_idx").on(t.clientId)]);
+  // Set only when a workspace owner revokes the connection. An owner revoke is
+  // final; an automatic revoke (refresh-token reuse) leaves this null so the
+  // same connection can be re-authorized.
+  revokedBy: identifier("revoked_by").references(() => users.id),
+}, (t) => [
+  index("agents_workspace_idx").on(t.workspaceId),
+  index("agents_client_idx").on(t.clientId),
+  check("agents_revoked_by_check", sql`${t.revokedBy} IS NULL OR ${t.revokedAt} IS NOT NULL`),
+]);
 
 export const oauthCodes = pgTable("oauth_codes", {
   codeHash: text("code_hash").primaryKey(),
@@ -112,10 +120,15 @@ export const oauthCodes = pgTable("oauth_codes", {
   redirectUri: text("redirect_uri").notNull(),
   codeChallenge: text("code_challenge").notNull(),
   scopes: text("scopes").array().notNull(),
+  // Reconnect target: the exchange rotates credentials on this agent instead of creating one.
+  agentId: identifier("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+  label: text("label"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt,
-});
+}, (t) => [
+  check("oauth_codes_label_length_check", sql`${t.label} IS NULL OR char_length(${t.label}) BETWEEN 1 AND 100`),
+]);
 
 export const refreshTokens = pgTable("refresh_tokens", {
   id: identifier("id").primaryKey(),

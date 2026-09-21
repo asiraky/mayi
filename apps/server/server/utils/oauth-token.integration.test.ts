@@ -3,6 +3,7 @@ import { createApp, createRouter, toWebHandler } from "h3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import oauthToken from "../api/oauth/token.post";
 import { tokenHash } from "./crypto";
+import { findReconnectTarget } from "./oauth-connection";
 import { database } from "./runtime";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://mayi:mayi@localhost:55432/mayi";
@@ -10,9 +11,12 @@ process.env.DATABASE_URL = DATABASE_URL;
 
 const ids = {
   workspace: createId(),
+  otherWorkspace: createId(),
   user: createId(),
   client: createId(),
+  otherClient: createId(),
 };
+const REDIRECT_URI = "https://client.example/callback";
 
 const router = createRouter();
 router.post("/api/oauth/token", oauthToken);
@@ -28,6 +32,27 @@ function refresh(token: string, clientId = ids.client, formEncoded = false): Pro
     body: formEncoded ? new URLSearchParams(input) : JSON.stringify(input),
   }));
 }
+
+async function authorize(options: { agentId?: string; label?: string } = {}) {
+  const code = `oauth-code-${createId()}`;
+  const verifier = `oauth-verifier-${createId()}`;
+  const challenge = Buffer.from(await sha256(verifier), "hex").toString("base64url");
+  await database().sql`
+    insert into oauth_codes (
+      code_hash, workspace_id, user_id, client_id, redirect_uri, code_challenge, scopes, agent_id, label, expires_at
+    ) values (
+      ${await tokenHash(code)}, ${ids.workspace}, ${ids.user}, ${ids.client}, ${REDIRECT_URI},
+      ${challenge}, ${["approval:read", "approval:create"]}, ${options.agentId ?? null}, ${options.label ?? null}, now() + interval '5 minutes'
+    )
+  `;
+  return () => handle(new Request("http://mayi.test/api/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "authorization_code", code, code_verifier: verifier, client_id: ids.client, redirect_uri: REDIRECT_URI }),
+  }));
+}
+
+type TokenBody = { access_token: string; refresh_token: string; agent_id: string };
 
 async function seedConnection(label: string) {
   const agentId = createId();
@@ -52,6 +77,11 @@ describe.sequential("OAuth refresh-token rotation", () => {
       values (${ids.user}, ${`${ids.user}@example.test`}, 'Refresh test', 'unused')
     `;
     await database().sql`insert into workspaces (id, name) values (${ids.workspace}, 'Refresh test')`;
+    await database().sql`insert into workspaces (id, name) values (${ids.otherWorkspace}, 'Other workspace')`;
+    await database().sql`
+      insert into oauth_clients (id, name, redirect_uris, approval_callback_uris, registration_ip_hash)
+      values (${ids.otherClient}, 'Other client', ${[REDIRECT_URI]}, ${["https://client.example/approval"]}, ${"e".repeat(64)})
+    `;
     await database().sql`
       insert into memberships (workspace_id, user_id, role) values (${ids.workspace}, ${ids.user}, 'OWNER')
     `;
@@ -62,8 +92,8 @@ describe.sequential("OAuth refresh-token rotation", () => {
   });
 
   afterAll(async () => {
-    await database().sql`delete from workspaces where id = ${ids.workspace}`;
-    await database().sql`delete from oauth_clients where id = ${ids.client}`;
+    await database().sql`delete from workspaces where id in ${database().sql([ids.workspace, ids.otherWorkspace])}`;
+    await database().sql`delete from oauth_clients where id in ${database().sql([ids.client, ids.otherClient])}`;
     await database().sql`delete from users where id = ${ids.user}`;
     await database().close();
   });
@@ -160,6 +190,73 @@ describe.sequential("OAuth refresh-token rotation", () => {
     }));
     const responses = await Promise.all([exchange(), exchange()]);
     expect(responses.map(({ status }) => status).sort()).toEqual([200, 400]);
+  });
+
+  it("names a new connection after its label and reports the agent id", async () => {
+    const response = await (await authorize({ label: "HARNESST — ledger-a" }))();
+    expect(response.status).toBe(200);
+    const token = await response.json() as TokenBody;
+    const [agent] = await database().sql`select name, client_id from agents where id = ${token.agent_id}`;
+    expect(agent).toMatchObject({ name: "HARNESST — ledger-a", client_id: ids.client });
+  });
+
+  it("reconnects onto the same agent, retiring its old credentials", async () => {
+    const connection = await seedConnection("reconnect");
+    const response = await (await authorize({ agentId: connection.agentId }))();
+    expect(response.status).toBe(200);
+    const token = await response.json() as TokenBody;
+    expect(token.agent_id).toBe(connection.agentId);
+
+    const [agent] = await database().sql`select name, scopes, credential_hash from agents where id = ${connection.agentId}`;
+    expect(agent!.name).toBe("reconnect");
+    expect(agent!.scopes).toEqual(["approval:read", "approval:create"]);
+    expect(agent!.credential_hash).toBe(await tokenHash(token.access_token));
+
+    // The pre-reconnect refresh token is dead, but using it must not be treated as
+    // reuse: that would revoke the connection the user just renewed.
+    expect((await refresh(connection.refreshToken)).status).toBe(400);
+    const rotated = await refresh(token.refresh_token);
+    expect(rotated.status).toBe(200);
+    expect((await rotated.json() as TokenBody).agent_id).toBe(connection.agentId);
+  });
+
+  it("renames the connection when a reconnect carries a new label", async () => {
+    const connection = await seedConnection("old name");
+    expect((await (await authorize({ agentId: connection.agentId, label: "new name" }))()).status).toBe(200);
+    const [agent] = await database().sql`select name from agents where id = ${connection.agentId}`;
+    expect(agent!.name).toBe("new name");
+  });
+
+  it("revives a connection that refresh-token reuse revoked", async () => {
+    const connection = await seedConnection("reuse then reconnect");
+    await refresh(connection.refreshToken);
+    expect((await refresh(connection.refreshToken)).status).toBe(400);
+
+    const response = await (await authorize({ agentId: connection.agentId }))();
+    expect(response.status).toBe(200);
+    const [agent] = await database().sql`select revoked_at from agents where id = ${connection.agentId}`;
+    expect(agent!.revoked_at).toBeNull();
+  });
+
+  it("refuses to reconnect a connection an owner revoked after consent", async () => {
+    const connection = await seedConnection("owner revoked");
+    const exchange = await authorize({ agentId: connection.agentId });
+    await database().sql`update agents set revoked_at = now(), revoked_by = ${ids.user}, credential_hash = null where id = ${connection.agentId}`;
+    expect((await exchange()).status).toBe(400);
+    const [agent] = await database().sql`select revoked_at, credential_hash from agents where id = ${connection.agentId}`;
+    expect(agent!.revoked_at).not.toBeNull();
+    expect(agent!.credential_hash).toBeNull();
+  });
+
+  it("only offers a reconnect target to its own client and workspace", async () => {
+    const connection = await seedConnection("scoped target");
+    const lookup = (clientId: string, workspaceId: string) =>
+      findReconnectTarget(database().sql, { agentId: connection.agentId, clientId, workspaceId });
+    await expect(lookup(ids.client, ids.workspace)).resolves.toMatchObject({ status: "ok", agentId: connection.agentId });
+    await expect(lookup(ids.otherClient, ids.workspace)).resolves.toEqual({ status: "not_found" });
+    await expect(lookup(ids.client, ids.otherWorkspace)).resolves.toEqual({ status: "not_found" });
+    await database().sql`update agents set revoked_at = now(), revoked_by = ${ids.user} where id = ${connection.agentId}`;
+    await expect(lookup(ids.client, ids.workspace)).resolves.toEqual({ status: "owner_revoked" });
   });
 
   it("rejects an oversized chunked token request before token work", async () => {

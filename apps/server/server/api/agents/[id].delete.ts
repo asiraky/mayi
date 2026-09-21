@@ -6,10 +6,12 @@ export default defineEventHandler(async (event) => {
   const auth = await requireUser(event);
   if (auth.role !== "OWNER") throw createError({ statusCode: 403, statusMessage: "Owner access required" });
   const id = getRouterParam(event, "id")!;
+  // An owner revoke is final. It also applies to a connection that was only revoked
+  // automatically (refresh-token reuse), which would otherwise stay reconnectable.
   const revoked = await database().sql.begin(async (sql) => {
     const rows = await sql`
-      update agents set revoked_at = now(), credential_hash = null
-      where id = ${id} and workspace_id = ${auth.workspaceId} and revoked_at is null
+      update agents set revoked_at = coalesce(revoked_at, now()), revoked_by = ${auth.userId}, credential_hash = null
+      where id = ${id} and workspace_id = ${auth.workspaceId} and revoked_by is null
       returning id
     `;
     if (!rows.length) return false;
