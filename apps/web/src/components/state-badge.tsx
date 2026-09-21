@@ -1,7 +1,6 @@
-import type { ApprovalState, InputState } from "@mayi/contracts";
+import type { ApprovalState, DecisionOutcome, InputState } from "@mayi/contracts";
 import { cn } from "~/lib/utils";
 
-/*
 /*
  * The states are told apart by weight rather than by hue, because the palette has one
  * accent and inventing a second (a green "approved") would break the rule the
@@ -28,7 +27,22 @@ const TONE: Record<ApprovalState | InputState, string> = {
   DRAFT: "border-border bg-muted text-muted-foreground",
 };
 
-export function StateBadge({ state, className }: { state: ApprovalState | InputState; className?: string }) {
+/** A request for changes is stored as a denial, but a reviewer asking for a revision is
+ *  not refusing outright, so it keeps DENIED's tone and says what actually happened. */
+function stateLabel(state: ApprovalState | InputState, outcome?: DecisionOutcome | null): string {
+  return state === "DENIED" && outcome === "CHANGES_REQUESTED" ? "Changes requested" : state;
+}
+
+export function StateBadge({
+  state,
+  outcome,
+  className,
+}: {
+  state: ApprovalState | InputState;
+  /** The approval's decisionOutcome, when there is one. */
+  outcome?: DecisionOutcome | null;
+  className?: string;
+}) {
   return (
     <span
       className={cn(
@@ -43,7 +57,7 @@ export function StateBadge({ state, className }: { state: ApprovalState | InputS
           <span className="size-1.5 animate-breathe rounded-full bg-primary" />
         </span>
       )}
-      {state}
+      {stateLabel(state, outcome)}
     </span>
   );
 }

@@ -15,8 +15,8 @@
     "@fontsource-variable/geist-mono": "^5.2.5",
     "@fontsource-variable/plus-jakarta-sans": "^5.2.5",
     "@mayi/contracts": "workspace:*",
-    "@mayiapp/sdk": "workspace:*",
     "@mayi/theme": "workspace:*",
+    "@mayiapp/sdk": "workspace:*",
     "@vitejs/plugin-react": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -24,6 +24,8 @@
     "radix-ui": "^1.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",
     "vite": "^8.1.0"
   },

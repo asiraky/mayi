@@ -11,6 +11,7 @@ const EVENT_LABELS: Record<string, string> = {
   "approval.sealed": "Approval sealed",
   "approval.approved": "Approval approved",
   "approval.denied": "Approval denied",
+  "approval.changes_requested": "Changes requested",
   "approval.expired": "Approval expired",
   "approval.cancelled": "Approval cancelled",
   "input.requested": "Question asked",

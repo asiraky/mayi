@@ -1,5 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import type { Approval } from "@mayi/contracts";
+import type { Approval, DecisionOutcome } from "@mayi/contracts";
 
 const ORIGIN = "mayi.origin"; const TOKEN = "mayi.session";
 export async function credentials() { return { origin: await SecureStore.getItemAsync(ORIGIN), token: await SecureStore.getItemAsync(TOKEN) }; }
@@ -12,4 +12,4 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 }
 export const approvals = () => request<Approval[]>("/api/approvals");
 export const approval = (id: string) => request<Approval>(`/api/approvals/${id}`);
-export const decide = (id: string, decision: "APPROVED" | "DENIED", comment?: string) => request<Approval>(`/api/approvals/${id}/decision`, { method: "POST", body: JSON.stringify({ decision, ...(comment ? { comment } : {}) }) });
+export const decide = (id: string, decision: DecisionOutcome, comment?: string) => request<Approval>(`/api/approvals/${id}/decision`, { method: "POST", body: JSON.stringify({ decision, ...(comment?.trim() ? { comment: comment.trim() } : {}) }) });
