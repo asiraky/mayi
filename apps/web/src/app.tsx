@@ -80,6 +80,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>("inbox");
   const [activity, setActivity] = useState<Array<Record<string, unknown>>>([]);
   const [agents, setAgents] = useState<Array<Record<string, unknown>>>([]);
+  const [agentError, setAgentError] = useState<string | null>(null);
   const [secret, setSecret] = useState("");
   // The reset email deep-links to ?reset=<token>; like linkedSelection, the URL
   // is the source of truth, and the flow must work with or without a session.
@@ -264,6 +265,19 @@ export function App() {
     form.reset();
   }
 
+  async function revokeAgent(agent: Record<string, unknown>) {
+    // An owner revoke is final server-side — the connection can never be reconnected —
+    // so it gets an explicit confirmation rather than a one-click action.
+    if (!window.confirm(`Revoke "${String(agent.name)}"? It loses access immediately and cannot be reconnected.`)) return;
+    setAgentError(null);
+    try {
+      await api.revokeAgent(String(agent.id));
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : "Could not revoke this agent");
+    }
+    setAgents(await api.agents());
+  }
+
   const rows: InboxRow[] = [
     ...items
       .filter((item) => (tab === "inbox" ? item.state === "PENDING" : item.state !== "PENDING" && item.state !== "DRAFT"))
@@ -385,15 +399,31 @@ export function App() {
                 </div>
               )}
 
+              {agentError && <p role="alert" className="mt-4 text-[14px] text-destructive">{agentError}</p>}
+
               <div className="mt-6 grid gap-2">
                 {agents.length ? (
                   agents.map((agent) => (
                     <Row key={String(agent.id)}>
-                      <span className="grid min-w-0 gap-1">
+                      <span className={`grid min-w-0 gap-1 ${agent.revokedAt ? "opacity-60" : ""}`}>
                         <span className="truncate text-[14px] font-medium">{String(agent.name)}</span>
                         <span className="truncate font-mono text-[12px] text-muted-foreground">
                           {(agent.scopes as string[]).join(" · ")}
                         </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-3">
+                        {Boolean(agent.revokedAt) && (
+                          <span className="text-[12px] text-muted-foreground">
+                            {agent.revokedByOwner ? "Revoked" : "Suspended"} {relativeTime(String(agent.revokedAt))}
+                          </span>
+                        )}
+                        {/* An automatic revoke (refresh-token reuse) can still be reconnected,
+                            so the owner keeps the option to make it final. */}
+                        {!agent.revokedByOwner && (
+                          <Button variant="outline" size="sm" onClick={() => void revokeAgent(agent)}>
+                            Revoke
+                          </Button>
+                        )}
                       </span>
                     </Row>
                   ))
